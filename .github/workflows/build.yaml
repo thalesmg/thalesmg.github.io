@@ -20,3 +20,19 @@ jobs:
           signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
       - name: build
         run: nix build .
+      - name: copy dist
+        run: "mkdir ./dist && cp -R result/* ./dist/"
+      - name: deploy netlify
+        uses: nwtgck/actions-netlify@v1.1.11
+        with:
+          publish-dir: ./dist/
+          production-deploy: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: ${{ github.event.head_commit.message }}
+          enable-commit-comment: true
+          enable-pull-request-comment: true
+          overwrites-pull-request-comment: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          # DEBUG: "*"
