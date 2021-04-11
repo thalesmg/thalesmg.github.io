@@ -1,7 +1,14 @@
 <ul>
     $for(posts)$
         <li>
-            <a href="$url$">$title$</a> - $date$
+          <a href="$url$">$title$</a> - $date$
+          $if(tagsList)$
+          -
+          $for(tagsList)$
+          <a href="$url$">$name$</a>
+          $sep$;
+          $endfor$
+          $endif$
         </li>
     $endfor$
 </ul>
