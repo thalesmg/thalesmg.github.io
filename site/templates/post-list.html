@@ -3,13 +3,11 @@
         <li>
           <a href="$url$">$title$</a> - $date$
           $if(tagsList)$
-          -
-          <span class="f6">
-          $for(tagsList)$
-          <a href="$url$">$name$</a>
-          $sep$;
-          $endfor$
-          </span>
+          <ul>
+            <li>
+              $partial("templates/tag-line.html")$
+            </li>
+          </ul>
           $endif$
         </li>
     $endfor$

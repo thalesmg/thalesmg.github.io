@@ -57,9 +57,9 @@ a {
   color: greenyellow;
 }
 
-li {
-  padding-bottom: 0.5em;
-}
+/* li { */
+/*   padding-bottom: 0.5em; */
+/* } */
 
 @media (max-width: 319px) {
   body {
@@ -151,3 +151,7 @@ li {
 }
 
 .f6 { font-size: .875rem; }
+
+.ba { border-style: solid; border-width: 1px; }
+
+.br3 {        border-radius: .5rem; }

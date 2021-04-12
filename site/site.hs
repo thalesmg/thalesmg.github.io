@@ -94,7 +94,9 @@ allTagsField name tags = listFieldWith name tagCtx mkPostTags
           <> field "url" mkTagUrl
 
     mkTagUrl :: Item String -> Compiler String
-    mkTagUrl tagItem = toUrl <$> (fmap fromJust . getRoute . tagsMakeId tags . itemBody $ tagItem)
+    mkTagUrl tagItem = do
+      mRoute <- getRoute . tagsMakeId tags . itemBody $ tagItem
+      pure . toUrl . fromJust $ mRoute
 
     mkPostTags :: Item String -> Compiler [Item String]
     mkPostTags postItem = do
