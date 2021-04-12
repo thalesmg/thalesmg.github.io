@@ -1,11 +1,9 @@
 --------------------------------------------------------------------------------
 {-# LANGUAGE OverloadedStrings #-}
 
-import Control.Applicative (empty)
-import Data.Maybe (fromJust)
-import           Data.Monoid (mappend)
+import           Control.Applicative (empty)
+import           Data.Maybe          (fromJust)
 import           Hakyll
-import Debug.Trace
 
 
 --------------------------------------------------------------------------------
@@ -24,7 +22,7 @@ main = hakyll $ do
                <> defaultContext
 
         makeItem ""
-            >>= loadAndApplyTemplate "templates/archive.html" ctx
+            >>= loadAndApplyTemplate "templates/post-list.html" ctx
             >>= loadAndApplyTemplate "templates/default.html" ctx
             >>= relativizeUrls
 
@@ -84,15 +82,8 @@ main = hakyll $ do
 postCtxWithTags :: Tags -> Context String
 postCtxWithTags tags =
      tagsField "tags" tags
-  -- <> listField "tagsList" (field "tag" $ pure . itemBody) produceTags
   <> allTagsField "tagsList" tags
   <> postCtx
-
-produceTags :: Compiler [Item String]
-produceTags = do
-  i <- getResourceString
-  tgs <- getTags (itemIdentifier i)
-  traverse makeItem tgs
 
 -- https://github.com/ysndr/blog/blob/5e10a521ca3faea94f0d9c536f079d4e5a5780db/generator/Fields.hs#L205
 allTagsField :: String -> Tags -> Context String
@@ -114,5 +105,5 @@ allTagsField name tags = listFieldWith name tagCtx mkPostTags
 
 postCtx :: Context String
 postCtx =
-    dateField "date" "%B %e, %Y" <>
-    defaultContext
+     dateField "date" "%Y-%m-%d"
+  <> defaultContext

@@ -4,10 +4,12 @@
           <a href="$url$">$title$</a> - $date$
           $if(tagsList)$
           -
+          <span class="f6">
           $for(tagsList)$
           <a href="$url$">$name$</a>
           $sep$;
           $endfor$
+          </span>
           $endif$
         </li>
     $endfor$
