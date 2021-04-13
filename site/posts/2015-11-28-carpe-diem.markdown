@@ -48,3 +48,97 @@ dui eros, hendrerit et vulputate vel, porta eu eros. Nullam nisi dui, commodo
 eget pharetra ut, ornare sit amet nunc. Fusce vel neque urna. Maecenas nulla
 ante, egestas at consequat quis, fermentum a enim. Aliquam id tristique urna.
 Integer augue justo, scelerisque et consectetur id, rhoncus eget enim.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (blah) where
+
+import qualified Data.Map as M
+
+-- comentário
+
+-- | haddock
+data Bah m = MkBah { bah :: m Text
+                   , boh :: Int -> IO ()
+                   }
+
+newtype Blergh = MkBlergh { getBlerg :: () }
+
+cousa :: Cont r Int -> Cont r String
+cousa c | c > 10 = fmap show c
+        | otherwise = undefined
+```
+
+```clojure
+;; comentário
+(def coisa
+  (1 2 3))
+
+(defn uma-coisa-marota
+  [a b]
+  (->>
+   :a
+   {:b 123 :c 1M}
+   [1 2 3]
+   (assoc (when ) (if true 1 2)))
+  {:b a
+   :a b})
+```
+
+```elixir
+  # comentário
+  plt = :dialyzer_plt.from_file "_build/dev/dialyxir_erlang-22.3.4.10_elixir-1.10.4_deps-dev.plt"
+
+  all_modules = plt |> :dialyzer_plt.all_modules() |> :sets.to_list()
+
+  :dialyzer_plt.lookup_module(plt, Ren.Util.Range.Logic)
+
+  files = for app <- [:elixir, :ex_unit, :mix, :iex, :logger, :eex] ++ [:erts, :kernel, :stdlib, :compiler],
+          path <- Path.join([Application.app_dir(app), "**/*.beam"]) |> Path.wildcard() do
+      to_charlist(path)
+    end
+
+  output_plt = "priv/plts/hallux.plt"
+  :dialyzer.run(
+    analysis_type: :plt_build,
+    files: files,
+    from: :byte_code,
+    output_plt: to_charlist(output_plt)
+  )
+
+  my_plt = :dialyzer_plt.from_file(output_plt)
+  all_modules = my_plt |> :dialyzer_plt.all_modules() |> :sets.to_list()
+
+
+  Application.ensure_loaded(:dialyxir)
+  output_plt = "priv/plts/hallux.plt"
+  :dialyzer.run(
+    analysis_type: :plt_build,
+    files: Dialyxir.Project.dialyzer_files(),
+    from: :byte_code,
+    output_plt: to_charlist(output_plt)
+  )
+  my_plt = :dialyzer_plt.from_file(output_plt)
+  all_modules = my_plt |> :dialyzer_plt.all_modules() |> :sets.to_list()
+  {:value, coisas} = :dialyzer_plt.lookup_module(my_plt, Hallux.Internal.Node)
+
+  analysis = with {:value, coisas} <- :dialyzer_plt.lookup_module(my_plt, Hallux.Internal.Node) do
+               for {{mod, fun, ari}, ret, args} <- coisas, into: %{} do
+                 t = :erl_types.t_fun(args, ret)
+                 sig = :dialyzer_utils.format_sig(t)
+                 IO.inspect(
+                   ret: ret,
+                   args: args,
+                   t: t
+                 )
+                 {{mod, fun, ari}, to_string(sig)}
+               end
+             end
+
+defmodule Bah do
+  def bah(x, y) do
+    {:ok, x + y}
+  end
+end
+```
