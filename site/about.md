@@ -1,5 +1,5 @@
 ---
-title: Contact
+title: About
 ---
 
 - github: [https://github.com/thalesmg](https://github.com/thalesmg)
