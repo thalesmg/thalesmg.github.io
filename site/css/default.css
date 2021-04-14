@@ -121,7 +121,7 @@ a {
 
 @media (min-width: 640px) {
   body {
-    width: 60rem;
+    width: 97%;
     margin: 0 auto;
     padding: 0;
   }
@@ -149,6 +149,23 @@ a {
     font-size: 1.8rem;
   }
 }
+
+@media (min-width: 980px) {
+  body {
+    width: 80rem;
+    margin: 0 auto;
+    padding: 0;
+  }
+}
+
+@media (min-width: 1400px) {
+  body {
+    width: 120rem;
+    margin: 0 auto;
+    padding: 0;
+  }
+}
+
 
 .f6 { font-size: .875rem; }
 
