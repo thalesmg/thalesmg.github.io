@@ -142,3 +142,5 @@ defmodule Bah do
   end
 end
 ```
+
+<script src="https://gist.github.com/thalesmg/3fdc4ed2ad8f406949b475362a6a2e1a.js"></script>
