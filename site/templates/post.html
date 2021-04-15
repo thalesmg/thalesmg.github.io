@@ -1,4 +1,9 @@
 <article>
+  $if(tags)$
+  <div>
+    $partial("templates/tag-line.html")$
+  </div>
+  $endif$
     <section class="header">
         Posted on $date$
         $if(author)$

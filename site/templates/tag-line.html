@@ -1,0 +1,9 @@
+$if(tagsList)$
+<span class="f6">
+  tags:
+  $for(tagsList)$
+  <a href="$url$" class="ba br3">$name$</a>
+  $sep$;
+  $endfor$
+</span>
+$endif$

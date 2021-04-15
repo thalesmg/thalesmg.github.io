@@ -1,7 +1,14 @@
 <ul>
     $for(posts)$
         <li>
-            <a href="$url$">$title$</a> - $date$
+          <a href="$url$">$title$</a> - <i class="f3">$date$</i>
+          $if(tagsList)$
+          <ul>
+            <li>
+              $partial("templates/tag-line.html")$
+            </li>
+          </ul>
+          $endif$
         </li>
     $endfor$
 </ul>
