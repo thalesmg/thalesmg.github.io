@@ -52,7 +52,7 @@ code span.im { } /* Import */
 code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
 code span.kw { color: dodgerblue; font-weight: bold; } /* Keyword */
 code span.op { color: chartreuse; } /* Operator */
-code span.ot { color: whitesmoke; } /* Other */
+code span.ot { color: chartreuse; } /* Other */
 
 code span.pp { color: #bc7a00; } /* Preprocessor */
 code span.sc { color: #4070a0; } /* SpecialChar */
