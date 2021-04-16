@@ -35,4 +35,11 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-          # DEBUG: "*"
+      - name: deploy gh pages
+        uses: crazy-max/ghaction-github-pages@v2.3.0
+        if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          target_branch: gh-pages
+          build_dir: ./dist/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
