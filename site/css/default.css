@@ -173,4 +173,6 @@ a {
 
 .ba { border-style: solid; border-width: 1px; }
 
-.br3 {        border-radius: .5rem; }
+.br3 { border-radius: .5rem; }
+
+.tj { text-align: justify; text-justify: inter-words; }
