@@ -1,0 +1,8 @@
+* building with nix
+
+#+BEGIN_SRC sh
+nix develop
+cd site
+cabal new-run site clean
+cabal new-run site watch
+#+END_SRC
