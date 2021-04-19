@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Optimizing meal allowance card usage using SBV</title>
+        <link rel="stylesheet" href="../css/default.css" />
+        <link rel="stylesheet" href="../css/code.css" />
+        <link rel="stylesheet" href="../css/gist.css" />
+    </head>
+    <body class="tj">
+        <header>
+            <div class="logo">
+                <a href="../">thalesmg</a>
+            </div>
+            <nav>
+                <a href="../">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../archive.html">Archive</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <h1>Optimizing meal allowance card usage using SBV</h1>
+            <article>
+  
+  <div>
+    
+<span class="f6">
+  tags:
+  
+  <a href="../tags/haskell.html" class="ba br3">haskell</a>
+  ;
+  
+  <a href="../tags/smt%20solvers.html" class="ba br3">smt solvers</a>
+  ;
+  
+  <a href="../tags/sbv.html" class="ba br3">sbv</a>
+  
+</span>
+
+
+  </div>
+  
+    <section class="header">
+        Posted on 2021-04-18
+        
+    </section>
+    <section>
+        <p>I was faced with the following problem: find a grocery shopping list that optimally consumes all remaining credit in a meal allowance card. The company I work for switched card providers and stopped crediting the old card, and I wanted to fully consume its remaining balance to the last cent.</p>
+<p>So, I had the idea to use the <a href="https://github.com/Z3Prover/z3">Z3 solver</a> to extract a subset of my desired shopping list such that the total amount, shipping included, would approach the remaining card balance as close as possible. I chose Haskell as the language, which has the excellent <a href="https://hackage.haskell.org/package/sbv">SBV</a> package that provides an API for SMT solvers such as Z3.</p>
+<p>For this, I used a few language pragmas:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE NamedFieldPuns #-}</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE FlexibleInstances #-}</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ot">{-# LANGUAGE NumericUnderscores #-}</span></span></code></pre></div>
+<p>… and a few imports:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.Foldable</span> (traverse_)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.SBV</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.SBV.Control</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">import</span> <span class="dt">Data.Functor.Identity</span> (<span class="dt">Identity</span>(..))</span></code></pre></div>
+<p>Following a hint from the <a href="https://hackage.haskell.org/package/sbv-8.14/docs/Documentation-SBV-Examples-Puzzles-Murder.html#t:Person">Murder puzzle example</a> from SBV (which seems like an application of <a href="https://reasonablypolymorphic.com/blog/higher-kinded-data/">higher-kinded data</a>), I parameterized my shopping item over the representation for the value:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Item</span> f <span class="ot">=</span> <span class="dt">MkItem</span> {<span class="ot"> itemID ::</span> <span class="dt">String</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>                     ,<span class="ot"> value ::</span> f <span class="dt">Integer</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>                     }</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">instance</span> <span class="dt">Show</span> (<span class="dt">Item</span> <span class="dt">Identity</span>) <span class="kw">where</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">show</span> <span class="dt">MkItem</span>{itemID, value <span class="ot">=</span> <span class="dt">Identity</span> value} <span class="ot">=</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;(&quot;</span> <span class="op">&lt;&gt;</span> itemID <span class="op">&lt;&gt;</span> <span class="st">&quot;, &quot;</span> <span class="op">&lt;&gt;</span> <span class="fu">show</span> value <span class="op">&lt;&gt;</span> <span class="st">&quot;)&quot;</span></span></code></pre></div>
+<p>By parameterizing <code>Item</code> over <code>f</code>, we can use the same structure both in concrete (when extracting solutions) and in symbolic (when searching for solutions) contexts. SBV symbolic values are wrapped in the <code>SBV</code> type, while the concrete ones are simply wrapped inside <code>Identity</code>. To transform a symbolic item into a concrete one, we must query a (satisfiable) model and get the values from it, which is done by <code>getValue</code>:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ot">getItem ::</span> <span class="dt">Item</span> <span class="dt">SBV</span> <span class="ot">-&gt;</span> <span class="dt">Query</span> (<span class="dt">Item</span> <span class="dt">Identity</span>)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>getItem <span class="dt">MkItem</span>{itemID, value} <span class="ot">=</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">MkItem</span> itemID <span class="op">&lt;$&gt;</span> (<span class="fu">fmap</span> <span class="dt">Identity</span> <span class="op">.</span> getValue <span class="op">$</span> value)</span></code></pre></div>
+<p>At first, I approached the problem trying to figure out how to express possible subsets of a given set in SBV. I could not figure out how to do it this way, since the resulting set could have any number of items, and was having trouble trying to sketch the function types using <a href="https://hackage.haskell.org/package/sbv-8.14/docs/Data-SBV.html#t:SSet"><code>SSet</code></a> and <code>Item SBV</code>.</p>
+<p>Then I had a much, much simpler idea. I simply had to create one <code>Bool</code> for each item in the list to represent whether it should be selected. This may seem quite obvious in retrospect, but it took some time for me to formulate the problem in an amenable way to the solver. I hope by sharing it here it may help someone else facing a similar problem.</p>
+<p>Anyway, the final solution is presented below:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ot">split ::</span> [<span class="dt">Item</span> <span class="dt">SBV</span>]</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>         <span class="co">-- ^ current shopping list</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>      <span class="ot">-&gt;</span> <span class="dt">SInteger</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>         <span class="co">-- ^ shipping cost</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>      <span class="ot">-&gt;</span> (<span class="dt">SInteger</span>, <span class="dt">SInteger</span>)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>         <span class="co">-- ^ (minimum, maximum) values of the sublist, to allow</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>         <span class="co">-- some flexibility in the solution</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>      <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Item</span> <span class="dt">Identity</span>]</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>         <span class="co">-- ^ the final sublist that approximates the card</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>         <span class="co">-- balance, if any</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>split originalList shipping (mini, maxi) <span class="ot">=</span> runSMT <span class="op">$</span> <span class="kw">do</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- we create a bool for each item in the input list</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  bs <span class="ot">&lt;-</span> sBools <span class="op">.</span> <span class="fu">map</span> itemID <span class="op">$</span> originalList</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- the symbolic total value of the sublist, yet to be determined</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> total <span class="ot">=</span> <span class="fu">foldr</span> (\(b, x) acc <span class="ot">-&gt;</span> oneIf b <span class="op">*</span> value x <span class="op">+</span> acc)</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>                    shipping (<span class="fu">zip</span> bs originalList)</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- the total value of the sublist should be within the</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- acceptable bounds</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  constrain <span class="op">$</span> mini <span class="op">.&lt;=</span> total <span class="op">.&amp;&amp;</span> total <span class="op">.&lt;=</span> maxi</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  query <span class="op">$</span> <span class="kw">do</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- is the model satisfiable?</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>    cs <span class="ot">&lt;-</span> checkSat</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">case</span> cs <span class="kw">of</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>      <span class="co">-- we can only probe the model if it is satisfiable</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>      <span class="dt">Sat</span> <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- we make the booleans concrete</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>        bs' <span class="ot">&lt;-</span> <span class="fu">mapM</span> getValue bs</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- ... and also the input values, even if they are</span></span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- literals to begin with</span></span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>        xs <span class="ot">&lt;-</span> <span class="fu">mapM</span> getItem originalList</span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>        s <span class="ot">&lt;-</span> getValue shipping</span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> xs' <span class="ot">=</span> <span class="fu">map</span> <span class="fu">snd</span></span>
+<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>                <span class="op">.</span> <span class="fu">filter</span> <span class="fu">fst</span></span>
+<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>                <span class="op">.</span> <span class="fu">zip</span> bs'</span>
+<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>                <span class="op">$</span> xs</span>
+<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>            total <span class="ot">=</span> <span class="fu">sum</span> <span class="op">.</span> <span class="fu">map</span> (runIdentity <span class="op">.</span> value) <span class="op">$</span> xs'</span>
+<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>        io <span class="op">$</span> <span class="fu">putStr</span> <span class="st">&quot;Total (only items) = &quot;</span></span>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>        io <span class="op">.</span> <span class="fu">print</span> <span class="op">$</span> total</span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>        io <span class="op">$</span> <span class="fu">putStr</span> <span class="st">&quot;Total (items + shipping) = &quot;</span></span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>        io <span class="op">.</span> <span class="fu">print</span> <span class="op">$</span> total <span class="op">+</span> s</span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>        <span class="fu">pure</span> xs'</span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>      <span class="co">-- if the model is provably unsatisfiable or if the</span></span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>      <span class="co">-- result is unknown (when the solver cannot prove</span></span>
+<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>      <span class="co">-- nor disprove the assertions)</span></span>
+<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>      <span class="co">-- we simply print a message and return an empty list</span></span>
+<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>      _ <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>        io <span class="op">$</span> <span class="fu">putStrLn</span> <span class="st">&quot;Impossible!&quot;</span></span>
+<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>        <span class="fu">pure</span> []</span></code></pre></div>
+<p>I already had a shopping list I wanted to buy for the month, and then I tried to apply the solver and see if I could optimize the allowance usage. To my surprise, even after altering the list more than once due to items becoming unavailable or correcting rounding errors in the values, the solver could find solutions that <em>exactly</em> consumed the entire balance!</p>
+<p>To get the solution:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="op">&gt;</span> result <span class="ot">&lt;-</span> split exampleList 14_90 (200_00, 210_00)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="dt">Total</span> (only items) <span class="ot">=</span> <span class="dv">18756</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="dt">Total</span> (items <span class="op">+</span> shipping) <span class="ot">=</span> <span class="dv">20246</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="op">&gt;</span> traverse_ <span class="fu">print</span> result</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Bread</span>, <span class="dv">949</span>)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Butter</span>, <span class="dv">679</span>)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Milk</span>, <span class="dv">798</span>)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Coffee</span>, <span class="dv">2198</span>)</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Decaffeinated</span> <span class="dt">Coffee</span>, <span class="dv">2198</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Hamburger</span>, <span class="dv">2179</span>)</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Sausage</span>, <span class="dv">1055</span>)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Cheese</span>, <span class="dv">2408</span>)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Bleach</span>, <span class="dv">3045</span>)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Sponge</span>, <span class="dv">499</span>)</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Toothbrush</span>, <span class="dv">1049</span>)</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>(<span class="dt">Flour</span>, <span class="dv">1699</span>)</span></code></pre></div>
+<p>Here’s a sample input list with some fake items to try out. We use <code>Item SBV</code> with integer literals so the solver can reason about those values. Also, values are represented in cents:</p>
+<details>
+<summary>
+Sample shopping list:
+</summary>
+<div class="sourceCode" id="cb7"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ot">exampleList ::</span> [<span class="dt">Item</span> <span class="dt">SBV</span>]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>exampleList <span class="ot">=</span> [ <span class="dt">MkItem</span> <span class="st">&quot;Rice&quot;</span> 13_99</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Beans&quot;</span> 7_99</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Oil&quot;</span> 68_97</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Bread&quot;</span> 9_49</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Butter&quot;</span> 6_79</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Milk&quot;</span> 7_98</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Coffee&quot;</span> 21_98</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Decaffeinated Coffee&quot;</span> 21_98</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Hamburger&quot;</span> 21_79</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Hot dog&quot;</span> 21_79</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Meat&quot;</span> 28_59</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Chicken&quot;</span> 15_97</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Sausage&quot;</span> 10_55</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Cheese&quot;</span> 24_08</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Bleach&quot;</span> 30_45</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Sponge&quot;</span> 4_99</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Soap&quot;</span> 28_19</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Soda&quot;</span> 35_80</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Toothbrush&quot;</span> 10_49</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>              , <span class="dt">MkItem</span> <span class="st">&quot;Flour&quot;</span> 16_99</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>              ]</span></code></pre></div>
+</details>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>
