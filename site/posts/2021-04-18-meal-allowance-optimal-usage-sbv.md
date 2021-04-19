@@ -1,5 +1,6 @@
 ---
 title: Optimizing meal allowance card usage using SBV
+tags: haskell, smt solvers, sbv
 ---
 
 I was faced with the following problem: find a grocery shopping list
