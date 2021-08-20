@@ -1,0 +1,42 @@
+---
+title: Delimited Continuations with <code>shift/reset</code> in Elixir
+tags: elixir, delimited continuations, proof of concept,
+---
+
+* Introduction
+
+Ever since I heard about those things called "continuations", I've
+been fascinated by what they are and how they work, specially after
+discovering this thing called ~callCC~[fn:1] [fn:2]. If this was not
+hard enough to grasp, some time later I discovered that continuations
+can be /delimited/ or /undelimited/. Recently I found several
+references about continuations[fn:3], but they tend to be papers that
+are hard to read without some prior knowledge, which I don't
+have. Therefore, I'm unable to present here some intuitive explanation
+about them. Maybe after much more reading.
+
+Instead, this post is about a proof of concept implementation of
+delimited continuations in Elixir. This is the result of my attempts
+at trying to understand (delimited) continuations by way of
+practice. I hope this may help someone else trying to grasp
+continuations and, if I'm lucky, someone may teach me more by pointing
+out the gaps in my understanding and implementation. =)
+
+I'll try to first describe simply what delimited continuations are
+(again, within my limited abilities), in particular regarding the
+control operators ~shift~ and ~reset~.
+
+* Shift / Reset
+
+* Some examples
+
+* References
+
+
+* Footnotes
+
+[fn:3] https://github.com/rain-1/continuations-study-group
+
+[fn:2] http://community.schemewiki.org/?call-with-current-continuation
+
+[fn:1] https://en.m.wikibooks.org/wiki/Haskell/Continuation_passing_style#callCC
