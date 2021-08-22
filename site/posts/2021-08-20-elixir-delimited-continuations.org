@@ -1,0 +1,423 @@
+---
+title: Delimited Continuations with <code>shift/reset</code> in Elixir
+tags: elixir, delimited continuations, proof of concept,
+---
+
+* Introduction
+
+Ever since I heard about those things called "continuations", I've
+been fascinated by what they are and how they work, specially after
+discovering this thing called ~callCC~[fn:1] [fn:2]. If this was not
+hard enough to grasp, some time later I discovered that continuations
+can be /delimited/ or /undelimited/. Recently I found several
+references about continuations[fn:3], but they tend to be papers that
+are hard to read without some prior knowledge, which I don't
+have. Therefore, I'm unable to present here some intuitive explanation
+about them. Maybe after much more reading.
+
+Instead, this post is about a proof of concept (POC) delimited
+continuations library in Elixir. This is the result of my attempts at
+trying to understand (delimited) continuations by way of practice. The
+resulting library converts Elixir code into continuation passing
+style, and then uses that transformed code to implement the control
+operators ~shift~ and ~reset~. Theses things will be briefly discussed
+here. I hope this may help someone else trying to grasp continuations
+and, if I'm lucky, someone may teach me more by pointing out the gaps
+in my understanding and implementation. =)
+
+This post begins with me trying to describe simply what continuation
+passing style (CPS) is (in my understanding), which was a prerequisite
+for creating the library. Then, I'll focus briefly on delimited
+continuations (again, within my limited abilities), in particular
+regarding the control operators ~shift~ and ~reset~. Finally, I'll
+present some (hopefully) interesting examples using these operators
+and the current library. If you want to skip this initial rambling,
+skip ahead to the [[examples_section][examples]].
+
+* Continuation Passing Style (CPS)
+
+This sections describes briefly what CPS is and some decisions that I
+had to make in the implementation in order for it to work. Although
+I'm still making sense of them 🙈.
+
+A continuation is the materialization of "what comes next" at a given
+point of execution of a program. Or, a continuation is the evaluation
+context surrounding the /reducible expression/ (/redex/)[fn:4]. Using
+the same example from the Racket documentation[fn:4]:
+
+#+BEGIN_SRC elixir
+  #  continuation
+  # ↓↓↓↓
+    4 - (1 + 1)
+  #     ↑↑↑↑↑↑↑
+  #      redex
+#+END_SRC
+
+Here, in order for the whole expression to be reduced, the redex is
+~(1 + 1)~, and the continuation is ~4 - _~, where ~_~ takes the place
+of the redex as it is reduced. As another example:
+
+#+BEGIN_SRC elixir
+  def some_fun() do
+    x = 1      # the lines below are this expression's continuation.
+    y = x + 2  # `x` is the "redex" that is fed here, and `_ + 3` is
+               # this line's continuation.
+    y + 3      # within this line, `_ + 3` is `y`'s continuation
+  end
+#+END_SRC
+
+/Continuation Passing Style (CPS)/ is a way of writing functions and
+expressions where the continuation is passed as an explicit argument
+to the redex.
+
+** Irreducible values
+
+The simplest case is that of a value that cannot be
+reduced further. Using the notation[fn:6] ~[[ E ]]~ to denote the CPS
+conversion of a term ~E~, the conversion of a pure value is simply:
+
+#+BEGIN_SRC
+  [[ x ]] = λκ. κ x
+#+END_SRC
+
+In Elixir:
+
+#+BEGIN_SRC elixir
+  # a simple value...
+  1
+  # ... in CPS form becomes:
+  fn k -> # `k` is the continuation, to be provided by some other code.
+    k.(1) # that continuation is invoked and receives the value to
+          # proceed.
+  end
+#+END_SRC
+
+** Primitive function application <<primitive_function_application>>
+
+Another simple case is that of primitive function application. A
+primitive function is one that is considered a "black box" and its
+definition cannot be directly converted into CPS. I considered local
+and remote function calls as primitives.
+
+For a primitive function ~p~ applied to ~x~, its conversion rule is:
+
+#+BEGIN_SRC
+  [[ p x ]] = λκ. [[ x ]] (λa. κ (p a))
+#+END_SRC
+
+Let's take as an example the negate unary operator, [[https://hexdocs.pm/elixir/Kernel.html#-/1][~Kernel.-/1~]].
+
+#+BEGIN_SRC elixir
+  - x
+  # ... in CPS form becomes:
+  fn k1 ->         # the outer continuation
+    (fn k2 ->      # ─┐ this `k2` is the lambda defined below
+      k2.(x)       #  │
+    end).(fn a ->  # <┘
+                   # the outer continuation receives the result of the
+      k1.(- a)     # primitive function application
+    end)
+  end
+#+END_SRC
+
+If you manually evaluate the above expression, you'll see that it is
+indeed equivalent to the original expression.
+
+If there are multiple arguments, we first have to /curry/[fn:5] the
+function before converting. This is the default behavior in a few
+languages such as Haskell and OCaml, but is a bit unusual in
+Elixir. If we start with the following for [[https://hexdocs.pm/elixir/Kernel.html#-/2][~Kernel.-/2~]]:
+
+#+BEGIN_SRC elixir
+  fn x, y ->
+    x - y
+  end
+#+END_SRC
+
+The curried form (not yet "/CPSed/"), is equivalent to:
+
+#+BEGIN_SRC elixir
+  fn x ->
+    fn y ->
+      x - y
+    end
+  end
+#+END_SRC
+
+The rule for a 2-arity primitive application is:
+
+#+BEGIN_SRC
+  [[ p x y ]] = λκ. [[ x ]] (λa. [[ y ]] (λb. κ (p a b)))
+#+END_SRC
+
+This rule can be extended further for more arguments. Expressing this
+in Elixir: <<cps_prim_app_minus1>>
+
+#+BEGIN_SRC elixir
+  # assuming `x` and `y` are in scope here.
+  fn k1 ->
+    (fn k2 ->
+      k2.(x)
+    end).(fn a ->
+      (fn k3 ->
+        k3.(y)
+      end).(fn b ->
+        k1.(a - b)
+      end)
+    end)
+  end
+#+END_SRC
+
+Pass this thing the "final continuation" (commonly the identity
+function [[https://hexdocs.pm/elixir/Function.html#identity/1][~Function.identity/1~]] or, more compactly, ~& &1~), you should
+see it results in ~-1~ as expected.
+
+A special case is that of 0-arity primitive functions. In that case,
+we just invoke the function and pass it to the continuation, as if it
+were a pure value.
+
+#+BEGIN_SRC elixir
+  node()
+  # ... becomes simply:
+  fn k -> k.(node()) end
+#+END_SRC
+
+** Lambdas
+
+The next case to consider is how to convert a lambda definition into
+CPS. To do so, we make it accept a continuation as the first argument,
+then immediately apply it to a lambda that takes the "original"
+argument. The body of this inner lambda is another lambda that takes
+another continuation, with the "CPSed" (converted into CPS) version of
+the original lambda body fed this inner continuation.
+
+#+BEGIN_SRC
+  [[ λx. M ]] = λκ1. κ1 (λx. λκ2. [[ M ]] κ2)
+#+END_SRC
+
+Since that is quite convoluted, let's visualize it by considering the
+identity function:
+
+#+BEGIN_SRC elixir
+  fn x -> x end
+#+END_SRC
+
+In CPS, it becomes:
+
+#+BEGIN_SRC elixir
+  fn k1 ->      # the outer continuation;
+    k1.(fn x -> # the argument;
+      fn k2 ->  # takes another continuation;
+        # then we CPS the body of the original lambda and feed it k2.
+        # [[ x ]] k2
+      end
+    end)
+  end
+  # ↓↓↓↓↓↓↓↓↓↓↓↓↓
+  fn k1 ->
+    k1.(fn x ->
+      fn k2 ->
+        # since it is a irreducible value, we apply the same rules as
+        # above.
+        (fn k3 ->
+          k3.(x)
+        end).(k2)
+      end
+    end)
+  end
+#+END_SRC
+
+In the above example, one could β-reduce[fn:7] the inner lambda and
+simplify further. But I'll use this β-expanded version that
+generalizes better for the cases below[fn:8] .
+
+There is an additional detail about the rule above: if a lambda like
+the above is directly applied in code, as in ~(fn x -> x end).(1)~,
+then the above conversion is the one use as the CPSed lambda to be
+applied to ~1~ (as will be explored later). But if this lambda is
+returned as a value, one must wrap it in another continuation layer as
+if it were a pure value:
+
+#+BEGIN_SRC elixir
+  # the final version of our example, when returned as a value
+  fn k0 ->        # ← notice the extra continuation `k0`
+    k0.(fn k1 ->  # ←
+      k1.(fn x ->
+        fn k2 ->
+          (fn k3 ->
+            k3.(x)
+          end).(k2)
+        end
+      end)
+    end)
+  end
+#+END_SRC
+
+I probably have messed something thing up when implementing, but I
+needed to do this in order for all the thing to behave as
+expected. I'm curious to know the correct version of this. =)
+
+In case of multiple arguments, we curry the function as in the
+primitive function application case above before CPSing it with
+similar rules. As an example that mixes lambda definitions and
+primitive function applications in its body. The big highlighted area
+is the CPSed version of the "minus one" shown [[cps_prim_app_minus1][above]].
+
+#+BEGIN_SRC elixir
+  # [[ fn x, y -> x - y end ]]
+  #
+  fn k0 ->                        # ← that extra continuation layer
+    k0.(fn k1 ->                  # ─┐
+      k1.(fn x ->                 # ─┘ stuff for the `x` argument
+        fn k3 ->
+          k3.(fn y ->
+            fn k4 ->
+              (fn k1 ->           # ─┐
+                (fn k2 ->         #  │
+                  k2.(x)          #  │
+                end).(fn a ->     #  │ this is the CPSed version of
+                  (fn k3 ->       #  │ the "minus one" function
+                    k3.(y)        #  │ shown above...
+                  end).(fn b ->   #  │
+                    k1.(a - b)    #  │
+                  end)            #  │
+                end)              #  │
+              end).(k4)           # ─┘ ... applied to the inner continuation
+            end                   #    from the lambda
+          end)
+        end
+      end)
+    end)
+  end
+#+END_SRC
+
+This is already quite unwieldy, and anything more complicated tend to
+grow quite fast in complexity. A good exercise is to take these more
+basic examples and try to β-reduce them manually to get more intuition
+of what-flows-where.
+
+We give the 0-arity case a slightly different treatment: we transform
+the lambda body, wrap the result in a 0-arity lambda and return that
+to a continuation.
+
+#+BEGIN_SRC elixir
+  fn -> :result end
+  # ... becomes:
+  fn k0 ->             # again, extra continuation layer
+    k0.(fn k1 ->
+      k1.(fn ->        # notice that there is no argument here
+        fn k2 ->       # ─┐
+          k2.(:result) #  │ lambda body converted
+        end            # ─┘
+      end)
+    end)
+  end
+#+END_SRC
+
+** Function application
+
+The last type of terms I'll attempt to show here is the application of
+functions to values. The implementation differentiates 3 sub-cases: i)
+application of values to a lambda literal; ii) application to a named
+lambda; iii) primitive function application. The last case was already
+covered [[primitive_function_application][above]], and it is things of the form ~fun(x)~ and
+~Node.ping()~. Case (i) is special because we use the converted lambda
+version without the extra continuation layer. Finally, case (ii) is
+treated specially because we assume that such function has already
+been curried and CPSed, so we do not convert it further and simply
+apply it using the rules that will be shown below.
+
+The conversion rule for an application is:
+
+#+BEGIN_SRC
+  [[ M N ]] = λκ. [[ M ]] (λm. [[ N ]] (λn. m n κ))
+#+END_SRC
+
+As a final example, we consider the application to a named lambda.
+
+#+BEGIN_SRC elixir
+  some_fun.(1)
+  # ... becomes
+  fn k1 ->
+    some_fun.(fn m ->   # ← `some_fun` is considered already CPSed
+      (fn k2 ->
+        k2.(1)          # ← CPSed argument
+      end).(fn n ->
+        m.(n).(k1)
+      end)
+    end)
+  end
+#+END_SRC
+
+** Other details
+
+For more details, I'll refer the reader to the implementation and to
+some papers that describe the transformation [GH LINK] [FIX DUP
+FN] [fn:6] [fn:9].
+
+* Shift / Reset
+
+Ok, that was quite a lot... Why go through all this trouble?
+
+The answer is that such transformations allow us to use some control
+operators that are quite powerful. Some examples of applications that
+can be implemented as libraries are: exceptions, backtracking search,
+threads, generators and coroutines [fn:10].
+
+Two of those operators are ~shift~ and ~reset~, and there are a few
+other more or less equivalent ones [fn:11]. They are most succinctly
+conceptually described in the Racket documentation by the reduction
+rules:
+
+#+BEGIN_SRC racket
+  ;; "=>" means "reduces to"
+  (reset val) => val
+  (reset E[(shift k expr)]) => (reset (λ (k) expr)
+                                      (λ (v) (reset E[v])))
+  ;; where `E` has no `reset`
+#+END_SRC
+
+
+* Some examples <<examples_section>>
+
+** Effect systems
+
+* Limitations
+
+I have not implemented several AST node possibilities in the
+transformation, so almost anything outside the examples in the tests
+will probably not work. =)
+
+The example from the composable-continuation tutorial on the Scheme
+Wiki does not work with the current version. I believe that
+~Enum.each~ (the equivalent of ~for-each~ there) would need to be
+CPSed for that to work.
+
+* References
+
+* Footnotes
+
+[fn:11] https://docs.racket-lang.org/reference/cont.html
+
+[fn:10] [[https://matt.might.net/articles/programming-with-continuations--exceptions-backtracking-search-threads-generators-coroutines/]["Continuations by example: Exceptions, time-traveling search, generators, threads, and coroutines", by Matt Might]]
+
+[fn:9] [[https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.8753][Olivier Danvy and Andre Filinski, “Abstracting Control,” LISP and Functional Programming, 1990]]
+
+[fn:8] It is also one point that I could not understand quite well
+when reading the papers. I needed to do this for the implementation to
+work properly for my test cases, but the equations in [fn:6] are
+somewhat different.
+
+[fn:7] https://en.wikipedia.org/wiki/Lambda_calculus#Reduction
+
+[fn:6] [[https://www.cambridge.org/core/journals/mathematical-structures-in-computer-science/article/abs/representing-control-a-study-of-the-cps-transformation/37193FD94F87443338FC7F519783FF0A][Olivier Danvy and Andre Filinski, "Representing Control: a Study of the CPS Transformation", MSCS, 1992]]
+
+[fn:5] https://en.wikipedia.org/wiki/Currying
+
+[fn:4] https://docs.racket-lang.org/reference/eval-model.html#%28part._cont-model%29
+
+[fn:3] https://github.com/rain-1/continuations-study-group
+
+[fn:2] http://community.schemewiki.org/?call-with-current-continuation
+
+[fn:1] https://en.m.wikibooks.org/wiki/Haskell/Continuation_passing_style#callCC
