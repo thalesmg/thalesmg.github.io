@@ -716,8 +716,7 @@ CPSed for that to work.
 *** Other details
 
  For more details, I'll refer the reader to the implementation and to
- some papers that describe the transformation [GH LINK] [FIX DUP
- FN] [fn:6] [fn:9].
+ some papers that describe the transformation [fn:15] [fn:6] [fn:9].
 
 ** Shift / Reset <<sec_shift_reset>>
 
@@ -779,6 +778,8 @@ by the presence of ~reset~, which acts as a delimiter (hence the name
 /delimited continuations/).
 
 * Footnotes
+
+[fn:15] https://github.com/thalesmg/campinas
 
 [fn:14] https://doi.org/10.1016/j.entcs.2015.12.003
 
