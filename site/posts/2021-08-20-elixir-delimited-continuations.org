@@ -394,7 +394,63 @@ Wiki does not work with the current version. I believe that
 ~Enum.each~ (the equivalent of ~for-each~ there) would need to be
 CPSed for that to work.
 
-* References
+* References and further resources
+
+Here are some resources I have used, not necessarily in their
+entirety, and others that I have found while researching this topic.
+
+- [[https://www.youtube.com/watch?v=QNM-njddhIw][Delimited Continuations for Everyone by Kenichi Asai (Youtube)]]
+
+  Nice video explaining delimited continuations with examples. It is
+  also where I found some recommendations of further resources (around
+  01:30).
+
+- [[https://www.cambridge.org/core/journals/mathematical-structures-in-computer-science/article/abs/representing-control-a-study-of-the-cps-transformation/37193FD94F87443338FC7F519783FF0A][Olivier Danvy and Andre Filinski, "Representing Control: a Study of the CPS Transformation", MSCS, 1992]]
+
+  The introductory paper recommended by Kenichi Asai. It does seem to
+  have some prior knowledge assumptions, but seems very comprehensive
+  and has very helpful tables of conversion rules for CPSing programs.
+
+- [[https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.8753][Olivier Danvy and Andre Filinski, “Abstracting Control,” LISP and Functional Programming, 1990]]
+
+  Another earlier paper by the authors who introduced ~shift~ and
+  ~reset~. It is more compact, has a couple examples, but is much more
+  dense and harder to understand (much more assumed knowledge about
+  concepts and notation).
+
+- [[https://docs.racket-lang.org/reference/cont.html][Racket Reference Manual on Continuations]]
+
+  Great source of references and displays other control operators. Not
+  quite didactic, but I recommend browsing it and trying out the
+  operators, since the implemention is solid in Racket.
+
+- [[http://community.schemewiki.org/?composable-continuations-tutorial][Composable Continuations Tutorial on Scheme Wiki]]
+
+  A nice and short tutorial with some examples that are very
+  illuminating examples that are valuable to be worked out manually.
+
+- [[https://github.com/swannodette/delimc][~delimc~ by David Nolen]]
+
+  A delimited continuations library for Clojure. Nice and short
+  implementation to study.
+
+- [[https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0313-delimited-continuation-primops.rst][The proposal to add delimited control primops to GHC]] and [[https://mail.haskell.org/pipermail/ghc-devs/2020-July/019016.html][a companion email thread]]
+
+  Low level discussion of adding control operators similar to ~shift~
+  and ~reset~ to GHC, and how these affect the execution stack.
+
+- [[https://stackoverflow.com/a/29838823/2708711][This answer to a StackOverflow question about continuation prompts]]
+
+  Has some nice visualizations relating stack frames and delimited
+  continuations.
+
+- [[https://github.com/rain-1/continuations-study-group][rain-1's continuation study group]]
+
+  A vast collection of papers and references about continuations in
+  general. It'll take quite a while to chew through all that. =)
+
+  I'd love to know if this group has a forum or similar channel where
+  one could ask questions.
 
 * Appendix <<appendix_section>>
 
