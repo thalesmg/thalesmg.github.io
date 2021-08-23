@@ -39,8 +39,6 @@ sections. Several examples will slowly build over one another because
 I found it interesting to do so when I was trying to grasp the
 concepts myself gradually.
 
-TODO: USE A FIXED COMMIT LINK TO LIB
-
 The experimental library is Campinas[fn:12], available on [[https://github.com/thalesmg/campinas][Github]]. To
 use it, just add ~use Campinas~ at the beginning of your module,
 define functions to be CPSed using the ~defcps/2~ macro and run them
@@ -743,7 +741,42 @@ CPSed for that to work.
    ;; where `E` has no `reset`
  #+END_SRC
 
- >>> TODO <<<
+I have not found in that documentation what ~E[_]~ means. But, by
+experimenting with the operators, it looks like it means the /dynamic
+continuation enclosing/ the call to ~shift~, up to but not including
+~reset~. So, in:
+
+#+BEGIN_SRC racket
+  (+ 1
+     (reset
+      (* 2
+         (shift c
+           (* 3 (c 4))))))
+#+END_SRC
+
+... ~E[_]~ means ~(λ (v) (* 2 v))~. Indeed, the expression above
+evaluates to ~25~. Using the second evaluation rule:
+
+#+BEGIN_SRC racket
+  (+ 1
+     (reset
+      ((λ (k) (* 3 (k 4)))
+       (λ (v) (* 2 v)))))
+  ;; β-reducing...
+  (+ 1
+     (reset
+      (* 3 ((λ (v) (* 2 v)) 4))))
+  ;; using the 1st reduction rule for `reset`...
+  (+ 1 (* 3 ((λ (v) (* 2 v)) 4)))
+  ;; β-reducing...
+  (+ 1 (* 3 (* 2 4)))
+  ;; which yields 25
+#+END_SRC
+
+So, shortly, ~shift~ captures the continuation and binds it to be used
+possibly multiple times. The extent of what is capture is determined
+by the presence of ~reset~, which acts as a delimiter (hence the name
+/delimited continuations/).
 
 * Footnotes
 
