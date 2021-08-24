@@ -422,7 +422,7 @@ entirety, and others that I have found while researching this topic.
 
   Great source of references and displays other control operators. Not
   quite didactic, but I recommend browsing it and trying out the
-  operators, since the implemention is solid in Racket.
+  operators, since the implementation is solid in Racket.
 
 - [[http://community.schemewiki.org/?composable-continuations-tutorial][Composable Continuations Tutorial on Scheme Wiki]]
 
@@ -446,7 +446,7 @@ entirety, and others that I have found while researching this topic.
 
 - [[https://wingolog.org/archives/2010/02/26/guile-and-delimited-continuations][guile and delimited continuations, by Andy Wingo]] <<ref_guile_wingo>>
 
-  One of the implementors of GNU Guile (a Scheme implementation)
+  One of the implementers of GNU Guile (a Scheme implementation)
   discusses adding delimited continuations to the language. Has some
   nice illustrations of the stack for the ~control/prompt~ operators
   (cousins of ~shift/reset~).
