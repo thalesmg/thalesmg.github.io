@@ -176,3 +176,7 @@ a {
 .br3 { border-radius: .5rem; }
 
 .tj { text-align: justify; text-justify: inter-words; }
+
+.center { margin-right: auto; margin-left: auto; }
+
+.w-60 { width: 60%; }
