@@ -434,17 +434,17 @@ entirety, and others that I have found while researching this topic.
   A delimited continuations library for Clojure. Nice and short
   implementation to study.
 
-- [[https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0313-delimited-continuation-primops.rst][The proposal to add delimited control primops to GHC]] and [[https://mail.haskell.org/pipermail/ghc-devs/2020-July/019016.html][a companion email thread]]
+- [[https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0313-delimited-continuation-primops.rst][The proposal to add delimited control primops to GHC]] and [[https://mail.haskell.org/pipermail/ghc-devs/2020-July/019016.html][a companion email thread]] <<ref_ghc_primops_alexis>>
 
   Low level discussion of adding control operators similar to ~shift~
   and ~reset~ to GHC, and how these affect the execution stack.
 
-- [[https://stackoverflow.com/a/29838823/2708711][This answer to a StackOverflow question about continuation prompts by Alexis King]]
+- [[https://stackoverflow.com/a/29838823/2708711][This answer to a StackOverflow question about continuation prompts by Alexis King]] <<ref_stackoverflow_alexis>>
 
   Has some nice visualizations relating stack frames and delimited
   continuations.
 
-- [[https://wingolog.org/archives/2010/02/26/guile-and-delimited-continuations][guile and delimited continuations, by Andy Wingo]]
+- [[https://wingolog.org/archives/2010/02/26/guile-and-delimited-continuations][guile and delimited continuations, by Andy Wingo]] <<ref_guile_wingo>>
 
   One of the implementors of GNU Guile (a Scheme implementation)
   discusses adding delimited continuations to the language. Has some
@@ -839,6 +839,90 @@ So, shortly, ~shift~ captures the continuation and binds it to be used
 possibly multiple times. The extent of what is capture is determined
 by the presence of ~reset~, which acts as a delimiter (hence the name
 /delimited continuations/).
+
+Just to illustrate, the example above could be written in Elixir as:
+
+#+BEGIN_SRC elixir
+  x = reset do
+        2 * shift cont do
+              3 * cont(4)
+            end
+      end
+  1 + x
+#+END_SRC
+
+I used an intermediate variable just to emphasize that the "remaining
+lines" after an expression are continuations for it.
+
+I'll try to borrow the visualization ideas [[ref_ghc_primops_alexis][from]] [[ref_guile_wingo][those]] [[ref_stackoverflow_alexis][references]] and
+attempt to illustrate conceptually how these operators are working in
+this example (it is almost certainly wrong concretely, I don't know
+how Elixir/Erlang break up stack frames).
+
+#+BEGIN_SRC
+  Each rectangle is a continuation frame, ● are the places
+  where the redexes go into.
+
+  ┌──────────┐
+  │  2 * ●  │   redex: shift cont do
+  │          │            3 * cont(4)
+  │          │          end
+  ├──────────┤
+  │ reset ● │
+  ├──────────┤
+  │  1 + ●  │
+  ├──────────┤
+  │   ...    │
+  ├──────────┤
+#+END_SRC
+
+When ~shift~ is invoked, it essentially captures the frames from the
+current one up to the nearest enclosing ~reset~, packages those up in
+~cont~, and replaces them with its own body frames.
+
+#+BEGIN_SRC
+  ┌──────────┐
+  │  3 * ●  │    redex:       cont(4)
+  ├──────────┤    environment: cont = 2 * ●
+  │ reset ● │
+  ├──────────┤
+  │  1 + ●  │
+  ├──────────┤
+  │   ...    │
+  ├──────────┤
+
+  ↓↓↓↓↓↓
+
+  ┌──────────┐
+  │  3 * ●  │    redex: 2 * 4
+  ├──────────┤
+  │ reset ● │
+  ├──────────┤
+  │  1 + ●  │
+  ├──────────┤
+  │   ...    │
+  ├──────────┤
+
+  ↓↓↓↓↓↓
+
+  ┌──────────┐
+  │ reset ● │    redex: 3 * 8
+  ├──────────┤
+  │  1 + ●  │
+  ├──────────┤
+  │   ...    │
+  ├──────────┤
+
+  ↓↓↓↓↓↓
+
+  ┌──────────┐
+  │  1 + ●  │    redex: 24
+  ├──────────┤
+  │   ...    │
+  ├──────────┤
+#+END_SRC
+
+Which reduces to ~25~, as said before.
 
 * Footnotes
 
