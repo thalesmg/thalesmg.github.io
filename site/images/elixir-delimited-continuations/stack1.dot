@@ -1,0 +1,30 @@
+digraph G {
+        graph [
+               rankdir = "LR"
+               bgcolor = "invis"
+               fontcolor = "white"
+        ];
+
+        "node" [
+                label = "<f0> 2 * ● | <f1> reset ● | <f2> 1 + ● | <f3> ..."
+                shape = "record"
+                fontcolor = "white"
+                color = "white"
+                fontname = "Source Code Pro"
+                bgcolor = "black"
+        ];
+
+        "redex" [
+                 label = "redex: shift cont do\l         3 * cont(4) \l       end\l"
+                 shape = "box"
+                 fontcolor = "white"
+                 color = "white"
+                 labeljust = "l"
+                 fontname = "Source Code Pro"
+                 bgcolor = "black"
+        ];
+
+        "node":f0 -> "redex" [
+                 color = "white"
+        ]
+}

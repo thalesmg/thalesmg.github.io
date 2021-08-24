@@ -859,70 +859,15 @@ attempt to illustrate conceptually how these operators are working in
 this example (it is almost certainly wrong concretely, I don't know
 how Elixir/Erlang break up stack frames).
 
-#+BEGIN_SRC
-  Each rectangle is a continuation frame, ● are the places
-  where the redexes go into.
-
-  ┌──────────┐
-  │  2 * ●  │   redex: shift cont do
-  │          │            3 * cont(4)
-  │          │          end
-  ├──────────┤
-  │ reset ● │
-  ├──────────┤
-  │  1 + ●  │
-  ├──────────┤
-  │   ...    │
-  ├──────────┤
-#+END_SRC
+[[../images/elixir-delimited-continuations-stack1.png]]
 
 When ~shift~ is invoked, it essentially captures the frames from the
 current one up to the nearest enclosing ~reset~, packages those up in
 ~cont~, and replaces them with its own body frames.
 
-#+BEGIN_SRC
-  ┌──────────┐
-  │  3 * ●  │    redex:       cont(4)
-  ├──────────┤    environment: cont = 2 * ●
-  │ reset ● │
-  ├──────────┤
-  │  1 + ●  │
-  ├──────────┤
-  │   ...    │
-  ├──────────┤
+[[../images/elixir-delimited-continuations-stack2.png]]
 
-  ↓↓↓↓↓↓
-
-  ┌──────────┐
-  │  3 * ●  │    redex: 2 * 4
-  ├──────────┤
-  │ reset ● │
-  ├──────────┤
-  │  1 + ●  │
-  ├──────────┤
-  │   ...    │
-  ├──────────┤
-
-  ↓↓↓↓↓↓
-
-  ┌──────────┐
-  │ reset ● │    redex: 3 * 8
-  ├──────────┤
-  │  1 + ●  │
-  ├──────────┤
-  │   ...    │
-  ├──────────┤
-
-  ↓↓↓↓↓↓
-
-  ┌──────────┐
-  │  1 + ●  │    redex: 24
-  ├──────────┤
-  │   ...    │
-  ├──────────┤
-#+END_SRC
-
-Which reduces to ~25~, as said before.
+Which reduces to ~25~, as before.
 
 * Footnotes
 
