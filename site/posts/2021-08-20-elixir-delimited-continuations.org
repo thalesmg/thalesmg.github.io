@@ -795,7 +795,7 @@ entirety, and others that I have found while researching this topic.
  conceptually described in the Racket documentation by the reduction
  rules:
 
- #+BEGIN_SRC racket
+ #+BEGIN_SRC scheme
    ;; "=>" means "reduces to"
    (reset val) => val
    (reset E[(shift k expr)]) => (reset (λ (k) expr)
@@ -808,7 +808,7 @@ experimenting with the operators, it looks like it means the /dynamic
 continuation enclosing/ the call to ~shift~, up to but not including
 ~reset~. So, in:
 
-#+BEGIN_SRC racket
+#+BEGIN_SRC scheme
   (+ 1
      (reset
       (* 2
@@ -819,7 +819,7 @@ continuation enclosing/ the call to ~shift~, up to but not including
 ... ~E[_]~ means ~(λ (v) (* 2 v))~. Indeed, the expression above
 evaluates to ~25~. Using the second evaluation rule:
 
-#+BEGIN_SRC racket
+#+BEGIN_SRC scheme
   (+ 1
      (reset
       ((λ (k) (* 3 (k 4)))
