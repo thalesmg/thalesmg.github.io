@@ -1,5 +1,5 @@
 ---
-title: Delimited Continuations with <code>shift/reset</code> in Elixir
+title: Delimited Continuations with shift/reset in Elixir
 tags: elixir, delimited continuations, proof of concept,
 ---
 
@@ -439,10 +439,17 @@ entirety, and others that I have found while researching this topic.
   Low level discussion of adding control operators similar to ~shift~
   and ~reset~ to GHC, and how these affect the execution stack.
 
-- [[https://stackoverflow.com/a/29838823/2708711][This answer to a StackOverflow question about continuation prompts]]
+- [[https://stackoverflow.com/a/29838823/2708711][This answer to a StackOverflow question about continuation prompts by Alexis King]]
 
   Has some nice visualizations relating stack frames and delimited
   continuations.
+
+- [[https://wingolog.org/archives/2010/02/26/guile-and-delimited-continuations][guile and delimited continuations, by Andy Wingo]]
+
+  One of the implementors of GNU Guile (a Scheme implementation)
+  discusses adding delimited continuations to the language. Has some
+  nice illustrations of the stack for the ~control/prompt~ operators
+  (cousins of ~shift/reset~).
 
 - [[https://github.com/rain-1/continuations-study-group][rain-1's continuation study group]]
 
