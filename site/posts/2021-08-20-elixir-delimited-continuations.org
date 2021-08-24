@@ -857,7 +857,9 @@ lines" after an expression are continuations for it.
 I'll try to borrow the visualization ideas [[ref_ghc_primops_alexis][from]] [[ref_guile_wingo][those]] [[ref_stackoverflow_alexis][references]] and
 attempt to illustrate conceptually how these operators are working in
 this example (it is almost certainly wrong concretely, I don't know
-how Elixir/Erlang break up stack frames).
+how Elixir/Erlang break up stack frames). In the images below, each
+rectangle is a continuation frame, and ● are the places where the
+redexes go into after being reduced.
 
 #+NAME: fig:stack1
 #+ATTR_HTML: :class db w-60 center
