@@ -860,7 +860,7 @@ this example (it is almost certainly wrong concretely, I don't know
 how Elixir/Erlang break up stack frames).
 
 #+NAME: fig:stack1
-#+ATTR_HTML: :class w-60 center
+#+ATTR_HTML: :class db w-60 center
 [[../images/elixir-delimited-continuations-stack1.png]]
 
 When ~shift~ is invoked, it essentially captures the frames from the
@@ -868,7 +868,7 @@ current one up to the nearest enclosing ~reset~, packages those up in
 ~cont~, and replaces them with its own body frames.
 
 #+NAME: fig:stack2
-#+ATTR_HTML: :class w-60 center
+#+ATTR_HTML: :class db w-60 center
 [[../images/elixir-delimited-continuations-stack2.png]]
 
 Which reduces to ~25~, as before.

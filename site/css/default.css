@@ -180,3 +180,5 @@ a {
 .center { margin-right: auto; margin-left: auto; }
 
 .w-60 { width: 60%; }
+
+.db { display: block; }
