@@ -1,0 +1,101 @@
+digraph G {
+        graph [
+               rankdir = "TB"
+               bgcolor = "invis"
+               fontcolor = "white"
+        ];
+
+        "node1" [
+                label = "{<f0> 3 * ● | <f1> reset ● | <f2> 1 + ● | <f3> ...}"
+                shape = "record"
+                fontcolor = "white"
+                bgcolor = "black"
+                color = "white"
+                fontname = "Source Code Pro"
+        ];
+
+        "redex1" [
+                 label = "redex:       cont(4)\lenvironment: cont = 2 * ●\l"
+                 shape = "box"
+                 fontcolor = "white"
+                 bgcolor = "black"
+                 color = "white"
+                 labeljust = "l"
+                 fontname = "Source Code Pro"
+        ];
+
+        "node2" [
+                label = "{<f0> 3 * ● | <f1> reset ● | <f2> 1 + ● | <f3> ...}"
+                shape = "record"
+                fontcolor = "white"
+                bgcolor = "black"
+                color = "white"
+                fontname = "Source Code Pro"
+        ];
+
+        "redex2" [
+                 label = "redex: 2 * 4\l"
+                 shape = "box"
+                 fontcolor = "white"
+                 bgcolor = "black"
+                 color = "white"
+                 labeljust = "l"
+                 fontname = "Source Code Pro"
+        ];
+
+        "node3" [
+                label = "{<f0> reset ● | <f1> 1 + ● | <f2> ...}"
+                shape = "record"
+                fontcolor = "white"
+                bgcolor = "black"
+                color = "white"
+                fontname = "Source Code Pro"
+        ];
+
+        "redex3" [
+                 label = "redex: 3 * 8\l"
+                 shape = "box"
+                 fontcolor = "white"
+                 bgcolor = "black"
+                 color = "white"
+                 labeljust = "l"
+                 fontname = "Source Code Pro"
+        ];
+
+        "node4" [
+                label = "{<f0> 1 + ● | <f1> ...}"
+                shape = "record"
+                fontcolor = "white"
+                bgcolor = "black"
+                color = "white"
+                fontname = "Source Code Pro"
+        ];
+
+        "redex4" [
+                 label = "redex: 24\l"
+                 shape = "box"
+                 fontcolor = "white"
+                 bgcolor = "black"
+                 color = "white"
+                 labeljust = "l"
+                 fontname = "Source Code Pro"
+        ];
+
+        {
+                rank = same
+                "node1":f0 -> "redex1" [ color = "white" ]
+        }
+        {
+                rank = same
+                "node2":f0 -> "redex2" [ color = "white" ]
+        }
+        {
+                rank = same
+                "node3":f0 -> "redex3" [ color = "white" ]
+        }
+        {
+                rank = same
+                "node4":f0 -> "redex4" [ color = "white" ]
+        }
+        "node1" -> "node2" -> "node3" -> "node4" [ color = "white" style = "dotted" ]
+}
