@@ -42,7 +42,8 @@ This post presents some (hopefully) interesting examples of what can
 be done using those operators. A very simplistic (and perhaps
 erroneous, as I'm still grasping those concepts... beware!)
 explanation of what I gathered so far about this topic and a few
-implementation details I stumbled upon are presented in the [[#sec:appendix][appendix]].
+implementation details I stumbled upon are presented in the
+[[#sec:appendix][appendix]]. The implementation is available on [[https://github.com/thalesmg/campinas/tree/2d41f2697395c2fc542500ad32c62f0f307c7220][Github]].
 
 * Examples
   :PROPERTIES:
@@ -55,7 +56,7 @@ sections. Several examples will slowly build over one another because
 I found it interesting to do so when I was trying to grasp the
 concepts myself gradually.
 
-The experimental library is Campinas[fn:12], available on [[https://github.com/thalesmg/campinas][Github]]. To
+The experimental library is Campinas[fn:12], available on [[https://github.com/thalesmg/campinas/tree/2d41f2697395c2fc542500ad32c62f0f307c7220][Github]]. To
 use it, just add ~use Campinas~ at the beginning of your module,
 define functions to be CPSed using the ~defcps/2~ macro and run them
 using the ~runCPS/1~ macro. Notice that the current implementation is
@@ -929,7 +930,7 @@ Which reduces to ~25~, as before.
   :CUSTOM_ID: sec:footnotes
   :END:
 
-[fn:15] https://github.com/thalesmg/campinas
+[fn:15] https://github.com/thalesmg/campinas/tree/2d41f2697395c2fc542500ad32c62f0f307c7220
 
 [fn:14] https://doi.org/10.1016/j.entcs.2015.12.003
 
