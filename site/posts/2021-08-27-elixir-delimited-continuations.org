@@ -3,7 +3,20 @@ title: Delimited Continuations with shift/reset in Elixir
 tags: elixir, delimited continuations, proof of concept,
 ---
 
+#+BEGIN: tmg/table-of-contents :max-depth 1
+- [[#sec:introduction][Introduction]]
+- [[#sec:examples][Examples]]
+- [[#sec:limitations][Limitations]]
+- [[#sec:references-and-further-resources][References and further resources]]
+- [[#sec:appendix][Appendix]]
+- [[#sec:footnotes][Footnotes]]
+
+#+END:
+
 * Introduction
+  :PROPERTIES:
+  :CUSTOM_ID: sec:introduction
+  :END:
 
 Ever since I heard about those things called "continuations", I've
 been fascinated by what they are and how they work, specially after
@@ -29,12 +42,15 @@ This post presents some (hopefully) interesting examples of what can
 be done using those operators. A very simplistic (and perhaps
 erroneous, as I'm still grasping those concepts... beware!)
 explanation of what I gathered so far about this topic and a few
-implementation details I stumbled upon are presented in the [[appendix_section][appendix]].
+implementation details I stumbled upon are presented in the [[#sec:appendix][appendix]].
 
-* Examples <<examples_section>>
+* Examples
+  :PROPERTIES:
+  :CUSTOM_ID: sec:examples
+  :END:
 
 Here, I'll present the basic usage of the library and some
-examples. For more on [[sec_cps][CPS]] and [[sec_shift_reset][~shift/reset~]], see the corresponding
+examples. For more on [[#sec:cps][CPS]] and [[sec:shift---reset][~shift/reset~]], see the corresponding
 sections. Several examples will slowly build over one another because
 I found it interesting to do so when I was trying to grasp the
 concepts myself gradually.
@@ -285,6 +301,9 @@ Running this yields:
 #+END_SRC
 
 ** Effect systems
+   :PROPERTIES:
+   :CUSTOM_ID: sec:effect-systems
+   :END:
 
 As the final example, I'll show simple error and state effects built
 upon those operators. It has been observed that delimited
@@ -384,6 +403,9 @@ Notice that there is no mutation involved, nor exceptions being
 raised/thrown (in the Elixir/Erlang sense) in those examples. ;)
 
 * Limitations
+  :PROPERTIES:
+  :CUSTOM_ID: sec:limitations
+  :END:
 
 I have not implemented several AST node possibilities in the
 transformation, so almost anything outside the examples in the tests
@@ -395,6 +417,9 @@ Wiki does not work with the current version. I believe that
 CPSed for that to work.
 
 * References and further resources
+  :PROPERTIES:
+  :CUSTOM_ID: sec:references-and-further-resources
+  :END:
 
 Here are some resources I have used, not necessarily in their
 entirety, and others that I have found while researching this topic.
@@ -459,9 +484,15 @@ entirety, and others that I have found while researching this topic.
   I'd love to know if this group has a forum or similar channel where
   one could ask questions.
 
-* Appendix <<appendix_section>>
+* Appendix
+  :PROPERTIES:
+  :CUSTOM_ID: sec:appendix
+  :END:
 
-** Continuation Passing Style (CPS) <<sec_cps>>
+** Continuation Passing Style (CPS)
+   :PROPERTIES:
+   :CUSTOM_ID: sec:continuation-passing-style--cps-
+   :END:
 
  This sections describes briefly what CPS is and some decisions that I
  had to make in the implementation in order for it to work. Although
@@ -498,6 +529,9 @@ entirety, and others that I have found while researching this topic.
  to the redex.
 
 *** Irreducible values
+    :PROPERTIES:
+    :CUSTOM_ID: sec:irreducible-values
+    :END:
 
  The simplest case is that of a value that cannot be
  reduced further. Using the notation[fn:6] ~[[ E ]]~ to denote the CPS
@@ -519,7 +553,10 @@ entirety, and others that I have found while researching this topic.
    end
  #+END_SRC
 
-*** Primitive function application <<primitive_function_application>>
+*** Primitive function application
+    :PROPERTIES:
+    :CUSTOM_ID: sec:primitive-function-application
+    :END:
 
  Another simple case is that of primitive function application. A
  primitive function is one that is considered a "black box" and its
@@ -610,6 +647,9 @@ entirety, and others that I have found while researching this topic.
  #+END_SRC
 
 *** Lambdas
+    :PROPERTIES:
+    :CUSTOM_ID: sec:lambdas
+    :END:
 
  The next case to consider is how to convert a lambda definition into
  CPS. To do so, we make it accept a continuation as the first argument,
@@ -742,12 +782,15 @@ entirety, and others that I have found while researching this topic.
  #+END_SRC
 
 *** Function application
+    :PROPERTIES:
+    :CUSTOM_ID: sec:function-application
+    :END:
 
  The last type of terms I'll attempt to show here is the application of
  functions to values. The implementation differentiates 3 sub-cases: i)
  application of values to a lambda literal; ii) application to a named
  lambda; iii) primitive function application. The last case was already
- covered [[primitive_function_application][above]], and it is things of the form ~fun(x)~ and
+ covered [[#sec:primitive-function-application][above]], and it is things of the form ~fun(x)~ and
  ~Node.ping()~. Case (i) is special because we use the converted lambda
  version without the extra continuation layer. Finally, case (ii) is
  treated specially because we assume that such function has already
@@ -777,11 +820,17 @@ entirety, and others that I have found while researching this topic.
  #+END_SRC
 
 *** Other details
+    :PROPERTIES:
+    :CUSTOM_ID: sec:other-details
+    :END:
 
  For more details, I'll refer the reader to the implementation and to
  some papers that describe the transformation [fn:15] [fn:6] [fn:9].
 
-** Shift / Reset <<sec_shift_reset>>
+** Shift / Reset
+   :PROPERTIES:
+   :CUSTOM_ID: sec:shift---reset
+   :END:
 
  Ok, that was quite a lot... Why go through all this trouble?
 
@@ -876,6 +925,9 @@ current one up to the nearest enclosing ~reset~, packages those up in
 Which reduces to ~25~, as before.
 
 * Footnotes
+  :PROPERTIES:
+  :CUSTOM_ID: sec:footnotes
+  :END:
 
 [fn:15] https://github.com/thalesmg/campinas
 
