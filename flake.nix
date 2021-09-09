@@ -16,20 +16,21 @@
       };
       hpkgs = pkgs.haskellPackages.override {
         overrides = hSelf: hSuper: {
-          pandoc =
-            pkgs.lib.pipe
-              (hSelf.callHackage "pandoc" "2.11.4" {})
-              [
-                doJailbreak
-                dontCheck
-              ];
+          # pandoc =
+          #   pkgs.lib.pipe
+          #     (hSelf.callHackage "pandoc" "2.11.4" {})
+          #     [
+          #       doJailbreak
+          #       dontCheck
+          #     ];
           tmg-site-builder = hSelf.callCabal2nix "site" ./site {};
-          hakyll = pkgs.lib.pipe
-            hSuper.hakyll
-            [
-              unmarkBroken
-              doJailbreak
-            ];
+          # hakyll = pkgs.lib.pipe
+          #   hSuper.hakyll
+          #   [
+          #     unmarkBroken
+          #     doJailbreak
+          #   ];
+          # hls-fourmolu-plugin = dontCheck hSuper.hls-fourmolu-plugin;
         };
       };
       doJailbreak = pkgs.haskell.lib.doJailbreak;
@@ -40,6 +41,11 @@
       site = pkgs.runCommand "tmg-site" {
         LANG = "en_US.UTF-8";
         LOCALE_ARCHIVE = "${pkgs.glibcLocales}/lib/locale/locale-archive";
+        buildInputs = [
+          pkgs.coqPackages.coq
+          pkgs.coqPackages.serapi
+          pkgs.python3Packages.alectryon
+        ];
       } ''
         mkdir -p dist
         mkdir -p $out
@@ -51,9 +57,6 @@
       '';
     in
       {
-
-        # packages.x86_64-linux.hello = nixpkgs.legacyPackages.x86_64-linux.hello;
-
         defaultPackage.x86_64-linux = site;
         devShell.x86_64-linux = hpkgs.shellFor {
           packages = p: [
@@ -61,7 +64,12 @@
           ];
           buildInputs = [
             pkgs.cabal-install
+            pkgs.haskell-language-server
             hpkgs.hakyll
+            hpkgs.hakyll-alectryon
+            pkgs.coqPackages.coq
+            pkgs.coqPackages.serapi
+            pkgs.python3Packages.alectryon
           ];
         };
       };

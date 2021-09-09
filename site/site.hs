@@ -2,8 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Control.Applicative (empty)
+import           Data.Functor        ((<&>))
 import           Data.Maybe          (fromJust)
 import           Hakyll
+import qualified Hakyll.Alectryon as Alectryon
 
 
 --------------------------------------------------------------------------------
@@ -42,7 +44,11 @@ main = hakyll $ do
 
     match postsGlob $ do
         route $ setExtension "html"
-        compile $ pandocCompiler
+        compile $
+          getResourceBody
+            >>= readPandoc
+            >>= Alectryon.tryTransform_
+            <&> writePandoc
             >>= loadAndApplyTemplate "templates/post.html"    (postCtxWithTags tags)
             >>= loadAndApplyTemplate "templates/default.html" (postCtxWithTags tags)
             >>= relativizeUrls
