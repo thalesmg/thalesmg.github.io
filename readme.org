@@ -1,8 +1,30 @@
 * building with nix
 
 #+BEGIN_SRC sh
-nix develop
-cd site
-cabal new-run site clean
-cabal new-run site watch
+  nix develop
+  cd site
+  cabal new-run site clean
+  cabal new-run site watch
+#+END_SRC
+
+* building with plain cabal
+
+Works with GHCUP, GHC 8.10.7, Cabal 3.6.2.0.
+
+#+BEGIN_SRC sh
+  cd site
+  # python -m venv venv
+  # . venv/bin/activate
+  # eval $(opam env)
+  cabal update
+  cabal run site clean
+  cabal run site watch
+#+END_SRC
+
+Dependencies:
+
+#+BEGIN_SRC sh
+  pip install alectryon
+  pacman -S opam
+  opam install coq-serapi
 #+END_SRC
