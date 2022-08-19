@@ -96,16 +96,13 @@
               ◊(require racket/string)
               ◊when/splice[(select-from-metas 'tags metas)]{
                 <div>
-                <span class="f6">
-                tags:
-                ◊for/splice[((tag (select-from-metas 'tags metas)))]{
-                  <a href=◊(string-append* (list "../tags/" tag ".html")) class="ba br3"> ◊tag </a> ;
-                }
-                </span>
+                ◊(->html (make-tag-list (select-from-metas 'tags metas)))
                 </div>
               }
               <section class="header">
-                Posted on ◊(select-from-metas 'date metas)
+                ◊when/splice[◊(select-from-metas 'date metas)]{
+                  Posted on ◊(select-from-metas 'date metas)
+                }
               </section>
               <section>
                 ◊(->html doc #:splice? #t)
