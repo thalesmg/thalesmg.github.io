@@ -1,0 +1,63 @@
+#lang pollen
+
+home.html
+teste.html
+◊archive.html{
+  ◊(for/splice [(file (directory-list "posts"))]
+       (path->string (build-path "posts" file)))
+}
+
+◊(require pollen/cache pollen/pagetree)
+◊;(println (cached-metas "posts/2021-04-18-meal-allowance-optimal-usage-sbv2.poly.pm"))
+
+◊(require racket/set racket/list racket/string racket/file)
+◊(define all-tags
+    (let* ([posts (filter-map (lambda (f) (begin (println f) (println (string-suffix? (path->string f) ".pm")) (and (string-suffix? (path->string f) ".pm") (build-path "posts" f))))
+                              (directory-list "posts"))]
+           [_ (println (list "found posts: " posts))]
+           [tags (for*/fold ([acc (hash)])
+                            ([post posts]
+                             [ptag (hash-ref (cached-metas post) 'tags '())])
+                   (println "aaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                   (println post)
+                   (println (cached-metas post))
+                   (println ptag)
+                   (println acc)
+                   (values (hash-update acc ptag
+                             (lambda (ps) (cons post ps))
+                             '())))])
+      (println (list "all tags >>>" tags))
+      (println (list "curr dir >>>" (current-directory)))
+      (println (list "all tags list >>>" (hash->list tags)))
+      (make-directory* (build-path (current-directory) "tags"))
+      (for ([tag->posts (hash->list tags)])
+        (println (list "tag >>>" tag->posts))
+        (let ([tag (car tag->posts)]
+              [posts2 (map (lambda (p)
+                            (println (list "argh antes " (path->string p)))
+                            (println (list "argh rx " #rx"post\\.pm$"))
+                            (println (list "aargh " (regexp-replace #rx"post\\.pm$" (path->string p) (symbol->string (current-poly-target)))))
+                            (regexp-replace #rx"post\\.pm$" (path->string p) (symbol->string (current-poly-target))))
+                            (cdr tag->posts))])
+          (println (list "escrevendo >>>" tag->posts))
+          (println (list "posts?? >>>" posts2))
+          (println (list "modo? >>>" (current-poly-target)))
+          (println (list "metas? >>>" (map cached-metas posts2)))
+          (with-output-to-file (build-path "tags" (string-append tag ".html.pm"))
+              (lambda ()
+                (displayln "#lang pollen")
+                (displayln "")
+                (displayln (format "◊(define tagged-posts '~a)" posts2))
+                (displayln "◊ul{")
+                (displayln
+                 "◊(for/splice ([p ◊tagged-posts])
+                        ◊li{◊(symbol->string p)})")
+                (displayln "}"))
+              #:exists 'replace)))
+      tags))
+◊;(println (list "all tags: " all-tags))
+
+◊tags.html{
+  ◊(for/splice ([tag->posts (hash->list all-tags)])
+     (path->string (build-path "tags" (string-append* (list (car tag->posts) ".html")))))
+}

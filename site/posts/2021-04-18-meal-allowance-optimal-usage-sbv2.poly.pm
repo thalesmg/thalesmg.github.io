@@ -6,13 +6,10 @@
 
 ◊(require racket/string racket/contract pollen/unstable/pygments)
 ◊(println (◊(◊listof ◊string?) '()))
+◊(require txexpr)
 ◊(define (hyperlink url . text)
-   (let [(text (if ((listof string?) text)
-                   (string-join text)
-                   (car text)))]
-     (println ◊a[#:href ◊url]{ ◊text })
-     (println ◊text)
-     ◊a[#:href ◊url]{◊text}))
+   (println (list "ó>>>>" (txexpr 'a `((href ,url)) text)))
+   (txexpr 'a `((href ,url)) text))
 
 
 I was faced with the following problem: find a grocery shopping list
