@@ -12,21 +12,21 @@
    (txexpr 'a `((href ,url)) text))
 
 
-I was faced with the following problem: find a grocery shopping list
+◊p{I was faced with the following problem: find a grocery shopping list
 that optimally consumes all remaining credit in a meal allowance
 card. The company I work for switched card providers and stopped
 crediting the old card, and I wanted to fully consume its remaining
-balance to the last cent.
+balance to the last cent.}
 
-So, I had the idea to use the ◊hyperlink["https://github.com/Z3Prover/z3"]{Z3
+◊p{So, I had the idea to use the ◊hyperlink["https://github.com/Z3Prover/z3"]{Z3
 solver} to extract a subset of my
 desired shopping list such that the total amount, shipping included,
 would approach the remaining card balance as close as possible. I
 chose Haskell as the language, which has the excellent
 ◊hyperlink["https://hackage.haskell.org/package/sbv"]{SBV} package that provides
-an API for SMT solvers such as Z3.
+an API for SMT solvers such as Z3.}
 
-For this, I used a few language pragmas:
+◊p{For this, I used a few language pragmas:}
 
 ◊highlight['haskell #:line-numbers? #f]{{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -39,11 +39,11 @@ import Data.SBV
 import Data.SBV.Control
 import Data.Functor.Identity (Identity(..))}
 
-Following a hint from the ◊hyperlink["https://hackage.haskell.org/package/sbv-8.14/docs/Documentation-SBV-Examples-Puzzles-Murder.html#t:Person"]{Murder puzzle
+◊p{Following a hint from the ◊hyperlink["https://hackage.haskell.org/package/sbv-8.14/docs/Documentation-SBV-Examples-Puzzles-Murder.html#t:Person"]{Murder puzzle
 example}
 from SBV (which seems like an application of ◊hyperlink["https://reasonablypolymorphic.com/blog/higher-kinded-data/"]{higher-kinded
 data}), I
-parameterized my shopping item over the representation for the value:
+parameterized my shopping item over the representation for the value:}
 
 ◊highlight['haskell #:line-numbers? #f]{data Item f = MkItem { itemID :: String
                      , value :: f Integer
@@ -53,34 +53,34 @@ instance Show (Item Identity) where
   show MkItem{itemID, value = Identity value} =
     "(" <> itemID <> ", " <> show value <> ")"}
 
-By parameterizing ◊code{Item} over ◊code{f}, we can use the same structure both
+◊p{By parameterizing ◊code{Item} over ◊code{f}, we can use the same structure both
 in concrete (when extracting solutions) and in symbolic (when
 searching for solutions) contexts. SBV symbolic values are wrapped in
 the ◊code{SBV} type, while the concrete ones are simply wrapped inside
 ◊code{Identity}. To transform a symbolic item into a concrete one, we must
 query a (satisfiable) model and get the values from it, which is done
-by ◊code{getValue}:
+by ◊code{getValue}:}
 
 ◊highlight['haskell #:line-numbers? #f]{getItem :: Item SBV -> Query (Item Identity)
 getItem MkItem{itemID, value} =
   MkItem itemID <$> (fmap Identity . getValue $ value)}
 
-At first, I approached the problem trying to figure out how to express
+◊p{At first, I approached the problem trying to figure out how to express
 possible subsets of a given set in SBV. I could not figure out how to
 do it this way, since the resulting set could have any number of
 items, and was having trouble trying to sketch the function types
 using
 ◊hyperlink["https://hackage.haskell.org/package/sbv-8.14/docs/Data-SBV.html#t:SSet"]{◊code{SSet}}
-and ◊code{Item SBV}.
+and ◊code{Item SBV}.}
 
-Then I had a much, much simpler idea. I simply had to create one
+◊p{Then I had a much, much simpler idea. I simply had to create one
 ◊code{Bool} for each item in the list to represent whether it should be
 selected. This may seem quite obvious in retrospect, but it took some
 time for me to formulate the problem in an amenable way to the
 solver. I hope by sharing it here it may help someone else facing a
-similar problem.
+similar problem.}
 
-Anyway, the final solution is presented below:
+◊p{Anyway, the final solution is presented below:}
 
 ◊highlight['haskell #:line-numbers? #f]{split :: [Item SBV]
          -- ^ current shopping list
@@ -131,14 +131,14 @@ split originalList shipping (mini, maxi) = runSMT $ do
         io $ putStrLn "Impossible!"
         pure []}
 
-I already had a shopping list I wanted to buy for the month, and then
+◊p{I already had a shopping list I wanted to buy for the month, and then
 I tried to apply the solver and see if I could optimize the allowance
 usage. To my surprise, even after altering the list more than once due
 to items becoming unavailable or correcting rounding errors in the
 values, the solver could find solutions that ◊emph{exactly} consumed the
-entire balance!
+entire balance!}
 
-To get the solution:
+◊p{To get the solution:}
 
 ◊highlight['haskell #:line-numbers? #f]{> result <- split exampleList 14_90 (200_00, 210_00)
 Total (only items) = 18756
@@ -157,9 +157,9 @@ Total (items + shipping) = 20246
 (Toothbrush, 1049)
 (Flour, 1699)}
 
-Here’s a sample input list with some fake items to try out. We use
+◊p{Here’s a sample input list with some fake items to try out. We use
 ◊code{Item SBV} with integer literals so the solver can reason about those
-values. Also, values are represented in cents:
+values. Also, values are represented in cents:}
 
 
 
