@@ -104,27 +104,9 @@
                       #:alectryon-executable [alectryon-executable "alectryon"])
   (define (default code)
     `((pre () (code () ,code))))
-  (println (list "vou"))
   (start alectryon-executable)
-  (println (list "fui"))
   (cond [(running?)
-         (println (list "vai porra"))
-         (println (list "porra"
-                   (~>> code
-                        ;; (map (λ (c)
-                        ;;        (regexp-replace* #rx"\\" c "\\\\")))
-                        ;; (map (λ (c)
-                        ;;        (regexp-replace* #rx"\\\\" c "\\\\\\\\")))
-                        ;; (map (λ (c)
-                        ;;        (regexp-replace* #rx"\n" c "\\\\n")))
-                        jsexpr->string)))
          (displayln (~>> code
-                        ;; (map (λ (c)
-                        ;;        (regexp-replace* #rx"\\" c "\\\\")))
-                         ;; (map (λ (c)
-                         ;;        (regexp-replace* #rx"\\\\" c "\\\\\\\\")))
-                         ;; (map (λ (c)
-                         ;;        (regexp-replace* #rx"\n" c "\\\\n")))
                          jsexpr->string)
                     alec-out)
          (close-output-port alec-out)
@@ -134,7 +116,6 @@
            (match (read-line alec-in 'any)
              [(? eof-object?)
               (stop)
-              (println (list "veio" s))
               (~> s
                   (string-split "<!-- alectryon-block-end -->")
                   )]
@@ -154,11 +135,8 @@
 (define (alectryon-blocks-raw
          #:alectryon-executable [alectryon-executable "alectryon"]
          blocks)
-  (println (list "blocks raw    " blocks))
-  (println (list "caraio" (alectryonize-raw blocks #:alectryon-executable alectryon-executable)))
   (filter-not
    (λ (x)
-     (displayln (list "filtrando    " x))
      (equal? x (list "\n")))
    (alectryonize-raw blocks #:alectryon-executable alectryon-executable)))
 

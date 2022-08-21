@@ -38,9 +38,9 @@ jobs:
           alectryon --version
           python --version
           raco pollen version
-          sertop --version
           opam --version
           ocaml --version
+          sertop --version
           mkdir ./dist
           cd site
           raco pollen render

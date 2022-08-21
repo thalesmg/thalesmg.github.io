@@ -1,5 +1,6 @@
 #lang pollen
 
+◊(and (copy-file "home.html.pm" "index.html.pm" #t) "index.html")
 home.html
 teste.html
 ◊archive.html{
