@@ -34,6 +34,13 @@ jobs:
           dune-cache: true
       - run: opam install coq-serapi
       - run: |
+          eval $(opam env)
+          alectryon --version
+          python --version
+          raco pollen version
+          sertop --version
+          opam --version
+          ocaml --version
           mkdir ./dist
           cd site
           raco pollen render

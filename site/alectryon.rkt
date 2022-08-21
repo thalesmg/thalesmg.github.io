@@ -111,16 +111,16 @@
          (println (list "vai porra"))
          (println (list "porra"
                    (~>> code
-                        (map (λ (c)
-                               (regexp-replace* #rx"\\" c "\\\\")))
+                        ;; (map (λ (c)
+                        ;;        (regexp-replace* #rx"\\" c "\\\\")))
                         ;; (map (λ (c)
                         ;;        (regexp-replace* #rx"\\\\" c "\\\\\\\\")))
                         ;; (map (λ (c)
                         ;;        (regexp-replace* #rx"\n" c "\\\\n")))
                         jsexpr->string)))
          (displayln (~>> code
-                        (map (λ (c)
-                               (regexp-replace* #rx"\\" c "\\\\")))
+                        ;; (map (λ (c)
+                        ;;        (regexp-replace* #rx"\\" c "\\\\")))
                          ;; (map (λ (c)
                          ;;        (regexp-replace* #rx"\\\\" c "\\\\\\\\")))
                          ;; (map (λ (c)
