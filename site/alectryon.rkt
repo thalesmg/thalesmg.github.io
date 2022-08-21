@@ -8,8 +8,8 @@
          json
          xml)
 
-(define prn0 void)
-(define prn1 void)
+(define prn0 displayln)
+(define prn1 displayln)
 
 (define-values (alec-in alec-out alec-pid alec-err alec-proc)
   (values #f #f #f #f #f))

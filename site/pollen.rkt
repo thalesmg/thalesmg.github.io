@@ -15,29 +15,30 @@
 
 (define (alectryon . elems)
   `(alec-wrapper (alectryon ,@elems)))
+
 (define (root . elements)
-  (define all-alectryon-snippets
-    (select* 'alec-wrapper (cons 'root elements)))
-  (define alectryon-snippet->txexpr
-    (when all-alectryon-snippets
-      (let ([blocks (alectryon-blocks-raw
-                     (map (λ (x)
-                            (string-append* (cdr x)))
-                          all-alectryon-snippets))])
-        (for/hash ([snip all-alectryon-snippets]
-                   [block blocks])
-          (values snip block)))))
-  (txexpr
-   'root empty
-   (decode-elements
-    elements
-    #:txexpr-proc
-    (match-lambda
-      [(and node (list 'alec-wrapper (and node1 (list 'alectryon code ...))))
-       (list 'raw (values (hash-ref alectryon-snippet->txexpr node1)))]
-      [node
-       node])
-    )))
+  (let* ([all-alectryon-snippets
+          (select* 'alec-wrapper (cons 'root elements))]
+         [alectryon-snippet->txexpr
+          (when all-alectryon-snippets
+            (let ([blocks (alectryon-blocks-raw
+                           (map (λ (x)
+                                  (string-append* (cdr x)))
+                                all-alectryon-snippets))])
+              (for/hash ([snip all-alectryon-snippets]
+                         [block blocks])
+                (values snip block))))])
+    (txexpr
+     'root empty
+     (decode-elements
+      elements
+      #:txexpr-proc
+      (match-lambda
+        [(and node (list 'alec-wrapper (and node1 (list 'alectryon code ...))))
+         (list 'raw (values (hash-ref alectryon-snippet->txexpr node1)))]
+        [node
+         node])
+      ))))
 
 (define (highlight lang
                    #:line-numbers? [line-numbers? #f]

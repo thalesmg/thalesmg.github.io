@@ -1,0 +1,53 @@
+name: New Build
+on:
+  pull_request:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2.4.2
+      - name: Cache
+        uses: actions/cache@v3.0.7
+        with:
+          path: |
+            ~/.cache/racket
+            ~/.local/share/racket
+            ~/.opam
+          key: ${{ runner.os }}-racket-8.5
+      - uses: Bogdanp/setup-racket@v1.8.1
+        with:
+          architecture: 'x64'
+          distribution: 'full'
+          variant: 'CS'
+          version: '8.5'
+      - run: raco pkg install --auto pollen
+      - name: Setup Python
+        uses: actions/setup-python@v4.2.0
+        with:
+          python-version: '3.10'
+      - run: pip install alectryon
+      - name: Use OCaml
+        uses: ocaml/setup-ocaml@v2.0.5
+        with:
+          ocaml-compiler: 4.14.0
+          dune-cache: true
+      - run: opam install coq-serapi
+      - run: |
+          mkdir ./dist
+          cd site
+          raco pollen render
+          raco pollen publish . ../dist
+      - name: deploy netlify
+        uses: nwtgck/actions-netlify@v1.1.11
+        with:
+          publish-dir: ./dist/
+          production-deploy: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: ${{ github.event.head_commit.message }}
+          enable-commit-comment: true
+          enable-pull-request-comment: true
+          overwrites-pull-request-comment: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}

@@ -3,8 +3,8 @@
 home.html
 teste.html
 ◊archive.html{
-  ◊(for/splice [(file (directory-list "posts"))]
-       (path->string (build-path "posts" file)))
+  ◊(for/splice [(file (all-posts))]
+       (path->string file))
 }
 
 ◊(require racket/string)
