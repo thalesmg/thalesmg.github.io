@@ -4,14 +4,6 @@
 ◊(define-meta title "Optimizing meal allowance card usage using SBV")
 ◊(define-meta date "2021-04-18")
 
-◊(require racket/string racket/contract pollen/unstable/pygments)
-◊(println (◊(◊listof ◊string?) '()))
-◊(require txexpr)
-◊(define (hyperlink url . text)
-   (println (list "ó>>>>" (txexpr 'a `((href ,url)) text)))
-   (txexpr 'a `((href ,url)) text))
-
-
 ◊p{I was faced with the following problem: find a grocery shopping list
 that optimally consumes all remaining credit in a meal allowance
 card. The company I work for switched card providers and stopped
@@ -28,16 +20,20 @@ an API for SMT solvers such as Z3.}
 
 ◊p{For this, I used a few language pragmas:}
 
-◊highlight['haskell #:line-numbers? #f]{{-# LANGUAGE NamedFieldPuns #-}
+◊highlight['haskell]{
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE NumericUnderscores #-}}
+{-# LANGUAGE NumericUnderscores #-}
+}
 
 ... and a few imports:
 
-◊highlight['haskell #:line-numbers? #f]{import Data.Foldable (traverse_)
+◊highlight['haskell]{
+import Data.Foldable (traverse_)
 import Data.SBV
 import Data.SBV.Control
-import Data.Functor.Identity (Identity(..))}
+import Data.Functor.Identity (Identity(..))
+}
 
 ◊p{Following a hint from the ◊hyperlink["https://hackage.haskell.org/package/sbv-8.14/docs/Documentation-SBV-Examples-Puzzles-Murder.html#t:Person"]{Murder puzzle
 example}
@@ -45,13 +41,15 @@ from SBV (which seems like an application of ◊hyperlink["https://reasonablypol
 data}), I
 parameterized my shopping item over the representation for the value:}
 
-◊highlight['haskell #:line-numbers? #f]{data Item f = MkItem { itemID :: String
+◊highlight['haskell]{
+data Item f = MkItem { itemID :: String
                      , value :: f Integer
                      }
 
 instance Show (Item Identity) where
   show MkItem{itemID, value = Identity value} =
-    "(" <> itemID <> ", " <> show value <> ")"}
+    "(" <> itemID <> ", " <> show value <> ")"
+}
 
 ◊p{By parameterizing ◊code{Item} over ◊code{f}, we can use the same structure both
 in concrete (when extracting solutions) and in symbolic (when
@@ -61,9 +59,11 @@ the ◊code{SBV} type, while the concrete ones are simply wrapped inside
 query a (satisfiable) model and get the values from it, which is done
 by ◊code{getValue}:}
 
-◊highlight['haskell #:line-numbers? #f]{getItem :: Item SBV -> Query (Item Identity)
+◊highlight['haskell]{
+getItem :: Item SBV -> Query (Item Identity)
 getItem MkItem{itemID, value} =
-  MkItem itemID <$> (fmap Identity . getValue $ value)}
+  MkItem itemID <$> (fmap Identity . getValue $ value)
+}
 
 ◊p{At first, I approached the problem trying to figure out how to express
 possible subsets of a given set in SBV. I could not figure out how to
@@ -82,7 +82,8 @@ similar problem.}
 
 ◊p{Anyway, the final solution is presented below:}
 
-◊highlight['haskell #:line-numbers? #f]{split :: [Item SBV]
+◊highlight['haskell]{
+split :: [Item SBV]
          -- ^ current shopping list
       -> SInteger
          -- ^ shipping cost
@@ -129,7 +130,8 @@ split originalList shipping (mini, maxi) = runSMT $ do
       -- we simply print a message and return an empty list
       _ -> do
         io $ putStrLn "Impossible!"
-        pure []}
+        pure []
+}
 
 ◊p{I already had a shopping list I wanted to buy for the month, and then
 I tried to apply the solver and see if I could optimize the allowance
@@ -140,7 +142,8 @@ entire balance!}
 
 ◊p{To get the solution:}
 
-◊highlight['haskell #:line-numbers? #f]{> result <- split exampleList 14_90 (200_00, 210_00)
+◊highlight['haskell]{
+> result <- split exampleList 14_90 (200_00, 210_00)
 Total (only items) = 18756
 Total (items + shipping) = 20246
 > traverse_ print result
@@ -155,18 +158,17 @@ Total (items + shipping) = 20246
 (Bleach, 3045)
 (Sponge, 499)
 (Toothbrush, 1049)
-(Flour, 1699)}
+(Flour, 1699)
+}
 
 ◊p{Here’s a sample input list with some fake items to try out. We use
 ◊code{Item SBV} with integer literals so the solver can reason about those
 values. Also, values are represented in cents:}
 
-
-
-
 ◊details{
   ◊summary{Sample shopping list:}
-  ◊highlight['haskell #:line-numbers? #f]{exampleList :: [Item SBV]
+  ◊highlight['haskell]{
+  exampleList :: [Item SBV]
   exampleList = [ MkItem "Rice" 13_99
                 , MkItem "Beans" 7_99
                 , MkItem "Oil" 68_97
@@ -187,5 +189,6 @@ values. Also, values are represented in cents:}
                 , MkItem "Soda" 35_80
                 , MkItem "Toothbrush" 10_49
                 , MkItem "Flour" 16_99
-                ]}
+                ]
+  }
 }

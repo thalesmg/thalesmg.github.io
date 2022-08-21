@@ -213,6 +213,10 @@ function Plain(s)
   return s
 end
 
+function DoubleQuoted(s)
+  return "\"" .. s .. "\""
+end
+
 function Para(s)
   -- return "◊p{" .. s .. "}"
   return s

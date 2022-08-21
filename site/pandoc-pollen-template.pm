@@ -1,6 +1,6 @@
 #lang pollen
 
 ◊(define-meta title "$title$")
-◊(define-meta doc-publish-date "$date$")
+◊(define-meta date "$date$")
 $if(tags)$◊(define-meta tags "$tags$")$endif$
 $body$
