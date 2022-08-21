@@ -49,8 +49,7 @@
     (begin0 (or (alec-proc 'exit-code) (alec-proc 'kill))
       (close-input-port alec-in)
       (close-output-port alec-out)
-      (close-input-port alec-err)
-      (set! running? #f)))
+      (close-input-port alec-err)))
   (void))
 
 (exit-handler
@@ -105,19 +104,37 @@
                       #:alectryon-executable [alectryon-executable "alectryon"])
   (define (default code)
     `((pre () (code () ,code))))
-  (unless (running?)
-    (start alectryon-executable))
-  ;; (with-output-to-file "/tmp/porra.json"
-  ;;   (lambda ()
-  ;;     (displayln (jsexpr->string code))))
+  (println (list "vou"))
+  (start alectryon-executable)
+  (println (list "fui"))
   (cond [(running?)
-         (displayln (jsexpr->string code) alec-out)
+         (println (list "vai porra"))
+         (println (list "porra"
+                   (~>> code
+                        (map (λ (c)
+                               (regexp-replace* #rx"\\" c "\\\\")))
+                        ;; (map (λ (c)
+                        ;;        (regexp-replace* #rx"\\\\" c "\\\\\\\\")))
+                        ;; (map (λ (c)
+                        ;;        (regexp-replace* #rx"\n" c "\\\\n")))
+                        jsexpr->string)))
+         (displayln (~>> code
+                        (map (λ (c)
+                               (regexp-replace* #rx"\\" c "\\\\")))
+                         ;; (map (λ (c)
+                         ;;        (regexp-replace* #rx"\\\\" c "\\\\\\\\")))
+                         ;; (map (λ (c)
+                         ;;        (regexp-replace* #rx"\n" c "\\\\n")))
+                         jsexpr->string)
+                    alec-out)
          (close-output-port alec-out)
 
          ;; Read back the highlighted code
          (let loop ([s ""])
            (match (read-line alec-in 'any)
              [(? eof-object?)
+              (stop)
+              (println (list "veio" s))
               (~> s
                   (string-split "<!-- alectryon-block-end -->")
                   )]
@@ -137,8 +154,11 @@
 (define (alectryon-blocks-raw
          #:alectryon-executable [alectryon-executable "alectryon"]
          blocks)
+  (println (list "blocks raw    " blocks))
+  (println (list "caraio" (alectryonize-raw blocks #:alectryon-executable alectryon-executable)))
   (filter-not
    (λ (x)
+     (displayln (list "filtrando    " x))
      (equal? x (list "\n")))
    (alectryonize-raw blocks #:alectryon-executable alectryon-executable)))
 

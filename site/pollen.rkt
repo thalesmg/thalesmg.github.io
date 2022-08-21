@@ -25,9 +25,14 @@
                            (map (λ (x)
                                   (string-append* (cdr x)))
                                 all-alectryon-snippets))])
+              ;; (displayln (list "all dentro >>>>>>>>>>>" all-alectryon-snippets))
+              (displayln (list "blocks >>>>>>>>>>>" blocks))
               (for/hash ([snip all-alectryon-snippets]
                          [block blocks])
+                (displayln (list "par >>>>>>>>>>>" snip block))
                 (values snip block))))])
+    (displayln (list "all >>>>>>>>>>>" all-alectryon-snippets))
+    (displayln (list "mapa >>>>>>>>>>>" alectryon-snippet->txexpr))
     (txexpr
      'root empty
      (decode-elements
