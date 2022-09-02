@@ -1,0 +1,29 @@
+{%- extends "basic/layout.html" %}
+
+{%- block relbar1 %}
+    <header>
+      <div class="logo" >
+       <a href="{{ pathto(root_doc)|e }}">{{ shorttitle|e }}</a>
+      </div>
+      <nav>
+        <a href="./">Home</a>
+        <a href="./about.html">About</a>
+        <a href="./archive.html">Archive</a>
+        {# <a href="{{ link|e }}">{{ title }}</a> #}
+
+        {%- block relbaritems %} {% endblock %}
+      </nav>
+    </header>
+{% endblock %}
+
+{%- block relbar2 %}
+{% endblock %}
+
+{%- block sidebar2 %}
+{% endblock %}
+
+{%- block footer %}
+  <footer>
+    {{ super() }}
+  </footer>
+{% endblock %}
