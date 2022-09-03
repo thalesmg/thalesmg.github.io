@@ -292,7 +292,8 @@ html_theme_options = {
 
 # Add any paths that contain custom themes here, relative to this directory.
 html_theme_path = [
-    # alabaster.get_path(),
+    alabaster.get_path(),
+    "/home/thales/.local/lib/python3.10/site-packages",
     "./"
 ]
 
@@ -387,4 +388,8 @@ ablog_builder = 'html'
 
 redirects = {
     "posts/2022-08-15-parallel-stateful-property-testing-example.html": "coisa",
+}
+
+html_context = {
+    "ablog_path": os.path.dirname(ablog.__file__),
 }

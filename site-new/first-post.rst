@@ -2,7 +2,7 @@
 .. thalesmg post example, created by `ablog start` on Aug 28, 2022.
 
 .. post:: Aug 28, 2022
-   :tags: atag
+   :tags: atag, alguma tag
    :author: Thales Macedo Garitezi
 
 First Post

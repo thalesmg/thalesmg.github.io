@@ -2,8 +2,6 @@
    :tags: atag, outra tag
    :author: Thales Macedo Garitezi
 
-.. tagline::
-
 #####
 Seção
 #####

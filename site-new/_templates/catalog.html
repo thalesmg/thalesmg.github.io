@@ -1,0 +1,7 @@
+{%- extends ablog_path + "/templates/catalog.html" %}
+{% block body %}
+  {% if catalog.name == "archive" %}
+  <a href="{{ pathto(ablog.tags.path) }}"><h2>Tags</h2></a>
+  {% endif %}
+  {{ super() }}
+{% endblock %}
