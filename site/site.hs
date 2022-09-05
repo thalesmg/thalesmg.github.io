@@ -5,10 +5,11 @@
 import           Control.Applicative (empty)
 import           Control.Concurrent (threadDelay, forkIO)
 import           Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
-import           Control.Monad ((>=>), forever)
+import           Control.Monad ((>=>), forever, forM, forM_)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import           Data.Foldable (fold)
 import           Data.Functor        ((<&>))
 import           Data.Maybe          (fromJust, fromMaybe)
 import           Data.Text (Text)
@@ -103,8 +104,32 @@ main = do
                 >>= loadAndApplyTemplate "templates/default.html" indexCtx
                 >>= relativizeUrls
 
-    match "templates/*" $ compile templateBodyCompiler
+    create ["tags.html"] $ do
+      route idRoute
+      compile $ do
+        allTags <- forM (tagsMap tags) (\(t, _) -> makeItem t)
+        debugCompiler (show allTags)
+        let ctx = listField "tags_map" tagCtx (pure allTags)
+                <> constField "title" "All Tags"
+                <> defaultContext
+            tagCtx :: Context String
+            tagCtx = field "name" (pure . itemBody)
+                  <> field "url" mkTagUrl
+                  <> listFieldWith "posts" postCtx tagPosts
+            mkTagUrl :: Item String -> Compiler String
+            mkTagUrl tagItem = do
+              mRoute <- getRoute . tagsMakeId tags . itemBody $ tagItem
+              pure . toUrl . fromJust $ mRoute
+            tagPosts :: Item String -> Compiler [Item String]
+            tagPosts tagItem =
+              let postIds = fromJust $ lookup (itemBody tagItem) (tagsMap tags)
+              in loadAll (fromList postIds)
+        makeItem ""
+          >>= loadAndApplyTemplate "templates/tags.html" ctx
+          >>= loadAndApplyTemplate "templates/default.html" ctx
+          >>= relativizeUrls
 
+    match "templates/*" $ compile templateBodyCompiler
 
 --------------------------------------------------------------------------------
 postCtxWithTags :: Tags -> Context String
@@ -170,7 +195,7 @@ generateCodeBlock chans (CodeBlock (_, classes, keyvals) contents) = do
   let colored = renderHtml $ H.pre ! A.class_ "sourceCode" $ H.code ! A.class_ (H.toValue $ "sourceCode " <> lang) $ do
                   preEscapedToHtml code
       caption = maybe "" (renderHtml . H.figcaption . H.span . preEscapedToHtml) $ lookup "text" keyvals
-      composed = renderHtml $ H.div ! A.class_ "codeBlock" $ do
+      composed = renderHtml $ H.div ! A.class_ "codeBlock sourceCode" $ do
                    preEscapedToHtml $ caption <> colored
 
   return $ RawBlock "html" (TL.toStrict composed)
