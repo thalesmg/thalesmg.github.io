@@ -39,6 +39,7 @@ jobs:
           ls -la
           ls -la _opam || true
           ls -la ~/.opam || true
+          eval $(opam env)
           opam install coq-serapi.8.15.0+0.15.2
       - name: build site
         run: |
