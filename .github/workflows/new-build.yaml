@@ -7,13 +7,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2.4.2
+      - uses: cachix/install-nix-action@v13
+        with:
+          install_url: https://nixos-nix-install-tests.cachix.org/serve/i6laym9jw3wg9mw6ncyrk6gjx4l34vvx/install
+          install_options: '--tarball-url-prefix https://nixos-nix-install-tests.cachix.org/serve'
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v10
+        with:
+          name: thalesmg
+          signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
       - name: Cache
         uses: actions/cache@v3.0.7
         with:
           path: |
             ~/.cache/racket
             ~/.local/share/racket
-            _opam
           key: ${{ runner.os }}-racket-8.5
       - uses: Bogdanp/setup-racket@v1.8.1
         with:
@@ -27,33 +36,41 @@ jobs:
         uses: actions/setup-python@v4.2.0
         with:
           python-version: '3.10'
-      - run: pip install alectryon
-      - name: Use OCaml
-        uses: ocaml/setup-ocaml@v2.0.5
-        with:
-          ocaml-compiler: 4.14.0
-          dune-cache: true
-      - name: install coq-serapi
-        run: |
-          pwd
-          ls -la
-          ls -la _opam || true
-          ls -la ~/.opam || true
-          eval $(opam env)
-          opam install coq-serapi.8.15.0+0.15.2
+      # - run: pip install alectryon
+      # - name: Use OCaml
+      #   uses: ocaml/setup-ocaml@v2.0.5
+      #   with:
+      #     ocaml-compiler: 4.14.0
+      #     dune-cache: true
+      # - name: install coq-serapi
+      #   run: |
+      #     pwd
+      #     ls -la
+      #     ls -la _opam || true
+      #     ls -la ~/.opam || true
+      #     eval $(opam env)
+      #     opam install coq-serapi.8.15.0+0.15.2
+      # - name: build site
+      #   run: |
+      #     eval $(opam env)
+      #     alectryon --version
+      #     python --version
+      #     raco pollen version
+      #     opam --version
+      #     ocaml --version
+      #     sertop --version
+      #     mkdir ./dist
+      #     cd site
+      #     raco pollen render
+      #     raco pollen publish . ../dist
       - name: build site
         run: |
-          eval $(opam env)
-          alectryon --version
-          python --version
-          raco pollen version
-          opam --version
-          ocaml --version
-          sertop --version
-          mkdir ./dist
-          cd site
-          raco pollen render
-          raco pollen publish . ../dist
+          nix-shell --run "bash -c '
+            mkdir ./dist
+            cd site
+            raco pollen render
+            raco pollen publish . ../dist
+          '"
       - name: deploy netlify
         uses: nwtgck/actions-netlify@v1.1.11
         with:
