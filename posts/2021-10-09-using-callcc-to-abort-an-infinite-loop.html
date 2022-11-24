@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Using callCC to abort an infinite loop</title>
+        <link rel="stylesheet" href="../css/default.css" />
+        <link rel="stylesheet" href="../css/code.css" />
+        <link rel="stylesheet" href="../css/pygments.css" />
+        <link rel="stylesheet" href="../css/gist.css" />
+    </head>
+    <body class="tj">
+        <header>
+            <div class="logo">
+                <a href="../">thalesmg</a>
+            </div>
+            <nav>
+                <a href="../">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../archive.html">Archive</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <h1>Using callCC to abort an infinite loop</h1>
+            <article>
+  
+  <div>
+    
+<span class="f6">
+  tags:
+  
+  <a href="../tags/haskell.html" class="ba br3">haskell</a>
+  ;
+  
+  <a href="../tags/continuations.html" class="ba br3">continuations</a>
+  ;
+  
+  <a href="../tags/callcc.html" class="ba br3">callcc</a>
+  
+</span>
+
+
+  </div>
+  
+    <section class="header">
+        Posted on 2021-10-09
+        
+    </section>
+    <section>
+        <p>This is just a quick complement to Drew Olson’s article <a href="https://blog.drewolson.org/adventures-in-looping">“Adventures in Looping”</a>. There, they describe some approaches to exiting an otherwise infinite loop in Haskell, and gives a nice overview of using some constructs like <code>MaybeT</code>, <code>mzero</code>, <code>void</code> and <code>forever</code>. I recommend reading it! It was also discussed on this week’s <a href="https://haskellweekly.news/episode/54.html">Haskell Weekly podcast</a>.</p>
+<p>The problem described there is that of an infinite loop of reading some data from somewhere and then doing some processing of that, but sometimes exiting that loop to, say, reconnect and start over. The final solution presented there is quite clean and uses the <code>MonadPlus</code> instance for <code>MaybeT</code> to abort the loop without introducing explicit recursion. The folks at Haskell Weekly podcast also suggest using something like <a href="https://hackage.haskell.org/package/transformers-0.6.0.2/docs/Control-Monad-Trans-Except.html#t:ExceptT"><code>ExceptT</code></a> to allow returning some information about why to loop was broken.</p>
+<p>Thinking about this, I realized that it seemed like an apt use case for <a href="https://hackage.haskell.org/package/transformers-0.6.0.2/docs/Control-Monad-Trans-Cont.html#v:callCC"><code>callCC</code></a>! As described in its documentation, <code>callCC</code> provides an escape continuation that allows aborting the current computation early and returning some result. It behaves quite similar to <code>return</code> statements from imperative languages, but inside the <code>ContT</code> monad. Since this approach was not mentioned in neither the blog post nor the podcast episode, I wanted to share this slight alternative. Also, because it seems to me that it is hard to find some practical example usages of <code>ContT</code> / <code>callCC</code>, and this looks like a perfect fit for it.</p>
+<p>The resulting code is almost identical to the <code>MaybeT</code> version:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="c1">-- runContT :: ContT r m a -&gt; (a -&gt; m r) -&gt; m r</span>
+<span class="c1">-- callCC :: ((a -&gt; ContT r m b) -&gt; ContT r m a) -&gt; ContT r m a</span>
+
+<span class="nf">main</span> <span class="ow">::</span> <span class="kt">IO</span> <span class="nb">()</span>
+<span class="nf">main</span> <span class="ow">=</span> <span class="n">forever</span> <span class="o">$</span> <span class="kr">do</span>
+  <span class="n">wsUrl</span> <span class="ow">&lt;-</span> <span class="n">fetchConnectionUrl</span>
+  <span class="n">conn</span> <span class="ow">&lt;-</span> <span class="n">connectWebSocket</span> <span class="n">wsUrl</span>
+
+  <span class="n">void</span> <span class="o">.</span> <span class="n">flip</span> <span class="n">runContT</span> <span class="n">pure</span> <span class="o">$</span> <span class="n">callCC</span> <span class="o">$</span> <span class="nf">\</span><span class="n">abort</span> <span class="ow">-&gt;</span> <span class="n">forever</span> <span class="o">$</span> <span class="kr">do</span>
+    <span class="n">message</span> <span class="ow">&lt;-</span> <span class="n">liftIO</span> <span class="o">$</span> <span class="n">readMessage</span> <span class="n">conn</span>
+
+    <span class="kr">case</span> <span class="n">message</span> <span class="kr">of</span>
+      <span class="kt">MessageA</span>   <span class="ow">-&gt;</span> <span class="n">liftIO</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Message A&quot;</span>
+      <span class="kt">MessageB</span>   <span class="ow">-&gt;</span> <span class="n">liftIO</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Message B&quot;</span>
+      <span class="kt">Disconnect</span> <span class="ow">-&gt;</span> <span class="kr">do</span>
+        <span class="n">liftIO</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Disconnect!&quot;</span>
+        <span class="n">abort</span> <span class="nb">()</span>
+</code></pre></div>
+<p>The differences are the use of <code>runContT</code> and <code>callCC</code>, since we are using the continuation monad. The <code>pure</code> argument to <code>flip runContT</code> is the final continuation that will receive the result from running the <code>ContT r m a</code>, which in turn corresponds to <code>r</code> in that type. <code>callCC</code> must be fed a function, which itself receives another function as an argument (this was a bit confusing for me in the beginning!). This argument is the so-called escape continuation that, if invoked with some value, will abort any remaining computation and just return the value fed to it.</p>
+<p>Running it does indeed work as intended (just printing some messages to emulate the program):</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">&gt; main
+connecting...
+Message B
+Disconnect!
+connecting...
+Message B
+Disconnect!
+connecting...
+Message B
+Message A
+Message A
+Disconnect!
+connecting...
+Disconnect!
+^CInterrupted.</code></pre></div>
+<p>If we wanted to return some information about the reason we are aborting the loop, as would be case if we used <code>ExceptT</code>, we can also do that by providing the reason to <code>abort</code>:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="nf">main2</span> <span class="ow">::</span> <span class="kt">IO</span> <span class="nb">()</span>
+<span class="nf">main2</span> <span class="ow">=</span> <span class="n">forever</span> <span class="o">$</span> <span class="kr">do</span>
+  <span class="n">wsUrl</span> <span class="ow">&lt;-</span> <span class="n">fetchConnectionUrl</span>
+  <span class="n">conn</span> <span class="ow">&lt;-</span> <span class="n">connectWebSocket</span> <span class="n">wsUrl</span>
+
+  <span class="kt">AbortReason</span> <span class="n">reason</span> <span class="ow">&lt;-</span> <span class="n">flip</span> <span class="n">runContT</span> <span class="n">pure</span> <span class="o">$</span> <span class="n">callCC</span> <span class="o">$</span> <span class="nf">\</span><span class="n">abort</span> <span class="ow">-&gt;</span> <span class="n">forever</span> <span class="o">$</span> <span class="kr">do</span>
+    <span class="n">message</span> <span class="ow">&lt;-</span> <span class="n">liftIO</span> <span class="o">$</span> <span class="n">readMessage</span> <span class="n">conn</span>
+
+    <span class="kr">case</span> <span class="n">message</span> <span class="kr">of</span>
+      <span class="kt">MessageA</span>   <span class="ow">-&gt;</span> <span class="n">liftIO</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Message A&quot;</span>
+      <span class="kt">MessageB</span>   <span class="ow">-&gt;</span> <span class="n">liftIO</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Message B&quot;</span>
+      <span class="kt">Disconnect</span> <span class="ow">-&gt;</span> <span class="kr">do</span>
+        <span class="n">liftIO</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Disconnect!&quot;</span>
+        <span class="n">abort</span> <span class="o">$</span> <span class="kt">AbortReason</span> <span class="s">&quot;something went wrong!&quot;</span>
+  <span class="n">putStrLn</span> <span class="o">$</span> <span class="s">&quot;disconnected! reason: &quot;</span> <span class="o">&lt;&gt;</span> <span class="n">reason</span>
+</code></pre></div>
+<p>And then:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">&gt; main2
+connecting...
+Disconnect!
+disconnected! reason: something went wrong!
+connecting...
+Message B
+Disconnect!
+disconnected! reason: something went wrong!
+connecting...
+Message A
+Message B
+Message B
+Disconnect!
+disconnected! reason: something went wrong!
+connecting...
+^CInterrupted.</code></pre></div>
+<p>That is it! I’d like to see more practical examples of <code>ContT</code> and <code>callCC</code> whenever possible. =)</p>
+<p>These alternative versions are available in <a href="https://gist.github.com/thalesmg/b63781002db9f2289db3fc393bb4c3f4">this gist</a>.</p>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>

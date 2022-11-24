@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Stateful Parallel Property Testing Example in Elixir</title>
+        <link rel="stylesheet" href="../css/default.css" />
+        <link rel="stylesheet" href="../css/code.css" />
+        <link rel="stylesheet" href="../css/pygments.css" />
+        <link rel="stylesheet" href="../css/gist.css" />
+    </head>
+    <body class="tj">
+        <header>
+            <div class="logo">
+                <a href="../">thalesmg</a>
+            </div>
+            <nav>
+                <a href="../">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../archive.html">Archive</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <h1>Stateful Parallel Property Testing Example in Elixir</h1>
+            <article>
+  
+  <div>
+    
+<span class="f6">
+  tags:
+  
+  <a href="../tags/elixir.html" class="ba br3">elixir</a>
+  ;
+  
+  <a href="../tags/stateful%20property%20based%20testing.html" class="ba br3">stateful property based testing</a>
+  ;
+  
+  <a href="../tags/concurrency.html" class="ba br3">concurrency</a>
+  
+</span>
+
+
+  </div>
+  
+    <section class="header">
+        Posted on 2022-08-15
+        
+    </section>
+    <section>
+        <p>I think the first time I heard about stateful property testing was in this excellent blog post<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a>. I found the idea very interesting, but only managed to apply the idea (very poorly) once. Recently, I saw two great talks about stateful property based testing<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a> <a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a>, and was fascinated by QuickCheck’s ability to test parallelism errors.</p>
+<p>I tried to search for some toy examples of such stateful parallel testing, but had some difficulty finding one<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a>, as most examples use sequential execution. Also, I find the callback descriptions and typespecs from PropEr a bit confusing as to what I should do on each one. The introduction of the module does describe them, but I got confused when trying to look at the typespecs. So, for my own reference, I tried to simply reproduce Hughes’ ticket dispenser example in Elixir, using <a href="https://github.com/alfert/propcheck/">PropCheck</a>, which is an Elixir wrapper around <a href="https://github.com/proper-testing/proper">PropEr</a>.</p>
+<p>The ticket dispenser has two operations: <code class="verbatim">take_ticket</code> and <code class="verbatim">reset</code>. The first version needs to have a concurrency bug, obviously:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">defmodule</span> <span class="nc">TicketDispenserTest</span> <span class="k">do</span>
+  <span class="kn">use</span> <span class="nc">ExUnit.Case</span><span class="p">,</span> <span class="ss">async</span><span class="p">:</span> <span class="no">true</span>
+  <span class="kn">use</span> <span class="nc">PropCheck</span><span class="p">,</span> <span class="ss">default_opt</span><span class="p">:</span> <span class="o">&amp;</span><span class="nc">PropCheck.TestHelpers</span><span class="o">.</span><span class="n">config</span><span class="o">/</span><span class="mi">0</span>
+  <span class="kn">use</span> <span class="nc">PropCheck.StateM</span>
+
+  <span class="na">@issue_ticket</span> <span class="p">{</span><span class="ss">:call</span><span class="p">,</span> <span class="bp">__MODULE__</span><span class="p">,</span> <span class="ss">:take_ticket</span><span class="p">,</span> <span class="p">[]}</span>
+  <span class="na">@reset</span> <span class="p">{</span><span class="ss">:call</span><span class="p">,</span> <span class="bp">__MODULE__</span><span class="p">,</span> <span class="ss">:reset</span><span class="p">,</span> <span class="p">[]}</span>
+
+  <span class="n">property</span> <span class="s2">&quot;issues unique tickets&quot;</span><span class="p">,</span> <span class="p">[</span><span class="ss">:verbose</span><span class="p">,</span> <span class="ss">numtests</span><span class="p">:</span> <span class="mi">1_000</span><span class="p">]</span> <span class="k">do</span>
+    <span class="n">forall</span> <span class="n">cmds</span> <span class="o">&lt;-</span> <span class="n">parallel_commands</span><span class="p">(</span><span class="bp">__MODULE__</span><span class="p">)</span> <span class="k">do</span>
+      <span class="p">{</span><span class="ss">:ok</span><span class="p">,</span> <span class="n">pid</span><span class="p">}</span> <span class="o">=</span> <span class="nc">Agent</span><span class="o">.</span><span class="n">start_link</span><span class="p">(</span><span class="k">fn</span> <span class="o">-&gt;</span> <span class="mi">0</span> <span class="k">end</span><span class="p">)</span>
+      <span class="nc">Process</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="nc">Counter</span><span class="p">)</span>
+      <span class="p">{</span><span class="n">seq_history</span><span class="p">,</span> <span class="n">par_history</span><span class="p">,</span> <span class="n">result</span><span class="p">}</span> <span class="o">=</span> <span class="n">run_parallel_commands</span><span class="p">(</span><span class="bp">__MODULE__</span><span class="p">,</span> <span class="n">cmds</span><span class="p">)</span>
+      <span class="nc">Agent</span><span class="o">.</span><span class="n">stop</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span>
+
+      <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="ss">:ok</span><span class="p">)</span>
+      <span class="o">|&gt;</span> <span class="n">aggregate</span><span class="p">(</span><span class="n">command_names</span><span class="p">(</span><span class="n">cmds</span><span class="p">))</span>
+      <span class="o">|&gt;</span> <span class="n">when_fail</span><span class="p">(</span>
+        <span class="p">(</span>
+          <span class="nc">PropCheck.StateM.Reporter</span><span class="o">.</span><span class="n">print_report</span><span class="p">({</span><span class="n">seq_history</span><span class="p">,</span> <span class="n">par_history</span><span class="p">,</span> <span class="n">result</span><span class="p">},</span> <span class="n">cmds</span><span class="p">)</span>
+          <span class="nc">IO</span><span class="o">.</span><span class="n">puts</span><span class="p">(</span><span class="s2">&quot;Result: </span><span class="si">#{</span><span class="n">inspect</span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+      <span class="p">)</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="kd">def</span> <span class="n">take_ticket</span><span class="p">()</span> <span class="k">do</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="nc">Agent</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nc">Counter</span><span class="p">,</span> <span class="o">&amp;</span> <span class="ni">&amp;1</span><span class="p">)</span>
+    <span class="nc">Agent</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nc">Counter</span><span class="p">,</span> <span class="k">fn</span> <span class="bp">_</span> <span class="o">-&gt;</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span> <span class="k">end</span><span class="p">)</span>
+    <span class="n">x</span>
+  <span class="k">end</span>
+
+  <span class="kd">def</span> <span class="n">reset</span><span class="p">()</span> <span class="k">do</span>
+    <span class="nc">Agent</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nc">Counter</span><span class="p">,</span> <span class="k">fn</span> <span class="bp">_</span> <span class="o">-&gt;</span> <span class="mi">0</span> <span class="k">end</span><span class="p">)</span>
+    <span class="ss">:ok</span>
+  <span class="k">end</span>
+
+  <span class="kd">def</span> <span class="n">initial_state</span><span class="p">(),</span> <span class="ss">do</span><span class="p">:</span> <span class="mi">0</span>
+  <span class="kd">def</span> <span class="n">command</span><span class="p">(</span><span class="n">_state</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="n">oneof</span><span class="p">([</span><span class="na">@issue_ticket</span><span class="p">,</span> <span class="na">@reset</span><span class="p">])</span>
+  <span class="kd">def</span> <span class="n">next_state</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">_res</span><span class="p">,</span> <span class="na">@issue_ticket</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="n">state</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="kd">def</span> <span class="n">next_state</span><span class="p">(</span><span class="n">_state</span><span class="p">,</span> <span class="n">_res</span><span class="p">,</span> <span class="na">@reset</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="mi">0</span>
+  <span class="kd">def</span> <span class="n">postcondition</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="na">@issue_ticket</span><span class="p">,</span> <span class="n">res</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="n">state</span> <span class="o">==</span> <span class="n">res</span>
+  <span class="kd">def</span> <span class="n">postcondition</span><span class="p">(</span><span class="n">_state</span><span class="p">,</span> <span class="na">@reset</span><span class="p">,</span> <span class="n">_res</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="no">true</span>
+  <span class="kd">def</span> <span class="n">precondition</span><span class="p">(</span><span class="n">_state</span><span class="p">,</span> <span class="na">@issue_ticket</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="no">true</span>
+  <span class="kd">def</span> <span class="n">precondition</span><span class="p">(</span><span class="n">_state</span><span class="p">,</span> <span class="na">@reset</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="no">true</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>The <code>command/1</code> callback must return a <em>generator</em> for the commands you want to define, which in turn is a <em>symbolic call</em> of the form <code>{:call, module :: atom(), fun :: atom(), [term()]}</code> (not what the <code>command()</code> typespec suggests it would be). Another detail to have in mind (which is described the <code>proper_statem</code> introduction) is that the <code>postcondition/3</code> callback takes in the state <em>prior to command execution</em>.</p>
+<p>Instead of using <code>Agent.get_and_update/1</code> to atomically update the state while issuing a new ticket, we do it in separate steps. That way, we have an unprotected critical section to see how PropCheck/PropEr behaves.</p>
+<p>Indeed, it does manage to quickly find and shrink to a very minimal failing example:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode example">================================================================================
+Concurrency Failure, we don't show the state :-/
+
+Sequential commands:
+   var1 = TicketDispenserTest.reset()
+        # -&gt; :ok
+        # Post state: 0
+
+
+Process 1:
+   var2 = TicketDispenserTest.reset()
+        # -&gt; :ok
+   var3 = TicketDispenserTest.take_ticket()
+        # -&gt; 0
+   var4 = TicketDispenserTest.reset()
+        # -&gt; :ok
+   var5 = TicketDispenserTest.reset()
+        # -&gt; :ok
+   var6 = TicketDispenserTest.reset()
+        # -&gt; :ok
+
+
+Process 2:
+   var7 = TicketDispenserTest.take_ticket()
+        # -&gt; 0
+   var8 = TicketDispenserTest.take_ticket()
+        # -&gt; 1
+   var9 = TicketDispenserTest.take_ticket()
+        # -&gt; 0
+   var10 = TicketDispenserTest.take_ticket()
+        # -&gt; 1
+   var11 = TicketDispenserTest.take_ticket()
+        # -&gt; 2
+   var12 = TicketDispenserTest.take_ticket()
+        # -&gt; 3
+
+
+
+Result: :no_possible_interleaving
+
+Shrinking .......(7 time(s))
+{[],
+ [
+   [{:set, {:var, 3}, {:call, TicketDispenserTest, :take_ticket, []}}],
+   [{:set, {:var, 8}, {:call, TicketDispenserTest, :take_ticket, []}}]
+ ]}
+
+================================================================================
+Concurrency Failure, we don't show the state :-/
+
+Sequential commands:
+
+
+Process 1:
+   var3 = TicketDispenserTest.take_ticket()
+        # -&gt; 0
+
+
+Process 2:
+   var8 = TicketDispenserTest.take_ticket()
+        # -&gt; 0
+</code></pre></div>
+<p>So, the shrunk counter-example shows that we have no sequential prefix (so, no shared sequence of commands before the two processes run concurrently), and they simply each try to take a ticket concurrently. Then it fails with the <code>:no_possible_interleaving</code> error since, according to the model, there’s no way that both processes manage to get the same ticket.</p>
+<p>As mentioned before, after the simple fix…</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode diff">def take_ticket() do
+<span class="gd">-  x = Agent.get(Counter, &amp; &amp;1)</span>
+<span class="gd">-  Agent.update(Counter, fn _ -&gt; x + 1 end)</span>
+<span class="gd">-  x</span>
+<span class="gi">+  Agent.get_and_update(Counter, &amp; {&amp;1, &amp;1 + 1})</span>
+end
+</code></pre></div>
+<p>… the test passes:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode example">OK: Passed 1000 test(s).
+
+50.06% {TicketDispenserTest, :reset, 0}
+49.94% {TicketDispenserTest, :take_ticket, 0}
+.
+
+Finished in 1.9 seconds (1.9s async, 0.00s sync)
+1 property, 0 failures
+</code></pre></div>
+<p>One more toy example: the classic bank transaction. Here, I’ll model it with just one <code>transfer</code> command, and the initial state will contain some cash on three predetermined accounts. I’ll put the real implementation in a separate <code>Transaction</code> module (the reason for this will be clear shortly). For the initial obviously buggy version, we’ll use Mnesia dirty reads/writes without any transactions:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">defmodule</span> <span class="nc">Transaction</span> <span class="k">do</span>
+  <span class="kd">def</span> <span class="n">transfer</span><span class="p">(</span><span class="n">from</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">amount</span><span class="p">)</span> <span class="k">do</span>
+    <span class="p">[{</span><span class="bp">_</span><span class="p">,</span> <span class="bp">_</span><span class="p">,</span> <span class="n">prev_from</span><span class="p">}]</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">dirty_read</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">from</span><span class="p">})</span>
+    <span class="p">[{</span><span class="bp">_</span><span class="p">,</span> <span class="bp">_</span><span class="p">,</span> <span class="n">prev_to</span><span class="p">}]</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">dirty_read</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">to</span><span class="p">})</span>
+    <span class="k">if</span> <span class="n">prev_from</span> <span class="o">&gt;=</span> <span class="n">amount</span> <span class="k">do</span>
+      <span class="ss">:mnesia</span><span class="o">.</span><span class="n">dirty_write</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">from</span><span class="p">,</span> <span class="n">prev_from</span> <span class="o">-</span> <span class="n">amount</span><span class="p">})</span>
+      <span class="ss">:mnesia</span><span class="o">.</span><span class="n">dirty_write</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">prev_to</span> <span class="o">+</span> <span class="n">amount</span><span class="p">})</span>
+      <span class="ss">:ok</span>
+    <span class="k">else</span>
+      <span class="ss">:no_funds</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div>
+<details>
+<summary> Test module for Bank Transaction </summary>
+
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">defmodule</span> <span class="nc">BankTransactionTest</span> <span class="k">do</span>
+  <span class="kn">use</span> <span class="nc">ExUnit.Case</span><span class="p">,</span> <span class="ss">async</span><span class="p">:</span> <span class="no">true</span>
+  <span class="kn">use</span> <span class="nc">PropCheck</span><span class="p">,</span> <span class="ss">default_opt</span><span class="p">:</span> <span class="o">&amp;</span><span class="nc">PropCheck.TestHelpers</span><span class="o">.</span><span class="n">config</span><span class="o">/</span><span class="mi">0</span>
+  <span class="kn">use</span> <span class="nc">PropCheck.StateM</span>
+
+  <span class="n">setup_all</span> <span class="k">do</span>
+    <span class="ss">:ok</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="ss">:ok</span>
+  <span class="k">end</span>
+
+  <span class="n">property</span> <span class="s2">&quot;issues unique tickets&quot;</span><span class="p">,</span> <span class="p">[</span><span class="ss">:verbose</span><span class="p">,</span> <span class="ss">numtests</span><span class="p">:</span> <span class="mi">1_000</span><span class="p">]</span> <span class="k">do</span>
+    <span class="p">{</span><span class="ss">:atomic</span><span class="p">,</span> <span class="ss">:ok</span><span class="p">}</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="ss">:balances</span><span class="p">,</span> <span class="p">[])</span>
+
+    <span class="n">forall</span> <span class="n">cmds</span> <span class="o">&lt;-</span> <span class="n">parallel_commands</span><span class="p">(</span><span class="bp">__MODULE__</span><span class="p">)</span> <span class="k">do</span>
+      <span class="nc">Enum</span><span class="o">.</span><span class="n">each</span><span class="p">([</span><span class="ss">:a</span><span class="p">,</span> <span class="ss">:b</span><span class="p">,</span> <span class="ss">:c</span><span class="p">],</span> <span class="k">fn</span> <span class="n">account</span> <span class="o">-&gt;</span>
+        <span class="ss">:mnesia</span><span class="o">.</span><span class="n">dirty_write</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">account</span><span class="p">,</span> <span class="n">initial_balance</span><span class="p">()})</span>
+      <span class="k">end</span><span class="p">)</span>
+
+      <span class="p">{</span><span class="n">seq_history</span><span class="p">,</span> <span class="n">par_history</span><span class="p">,</span> <span class="n">result</span><span class="p">}</span> <span class="o">=</span> <span class="n">run_parallel_commands</span><span class="p">(</span><span class="bp">__MODULE__</span><span class="p">,</span> <span class="n">cmds</span><span class="p">)</span>
+      <span class="n">tab</span> <span class="o">=</span> <span class="ss">:ets</span><span class="o">.</span><span class="n">tab2list</span><span class="p">(</span><span class="ss">:balances</span><span class="p">)</span>
+      <span class="ss">:mnesia</span><span class="o">.</span><span class="n">clear_table</span><span class="p">(</span><span class="ss">:balances</span><span class="p">)</span>
+
+      <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="ss">:ok</span><span class="p">)</span>
+      <span class="o">|&gt;</span> <span class="n">aggregate</span><span class="p">(</span><span class="n">command_names</span><span class="p">(</span><span class="n">cmds</span><span class="p">))</span>
+      <span class="o">|&gt;</span> <span class="n">when_fail</span><span class="p">(</span>
+        <span class="p">(</span>
+          <span class="nc">PropCheck.StateM.Reporter</span><span class="o">.</span><span class="n">print_report</span><span class="p">({</span><span class="n">seq_history</span><span class="p">,</span> <span class="n">par_history</span><span class="p">,</span> <span class="n">result</span><span class="p">},</span> <span class="n">cmds</span><span class="p">)</span>
+          <span class="nc">IO</span><span class="o">.</span><span class="n">puts</span><span class="p">(</span><span class="s2">&quot;Result: </span><span class="si">#{</span><span class="n">inspect</span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+          <span class="nc">IO</span><span class="o">.</span><span class="n">puts</span><span class="p">(</span><span class="s2">&quot;Accounts: </span><span class="si">#{</span><span class="n">inspect</span><span class="p">(</span><span class="n">tab</span><span class="p">,</span> <span class="ss">pretty</span><span class="p">:</span> <span class="no">true</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+      <span class="p">)</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="kd">def</span> <span class="n">initial_state</span><span class="p">(),</span>
+    <span class="ss">do</span><span class="p">:</span> <span class="p">%{</span>
+      <span class="ss">a</span><span class="p">:</span> <span class="n">initial_balance</span><span class="p">(),</span>
+      <span class="ss">b</span><span class="p">:</span> <span class="n">initial_balance</span><span class="p">(),</span>
+      <span class="ss">c</span><span class="p">:</span> <span class="n">initial_balance</span><span class="p">()</span>
+    <span class="p">}</span>
+
+  <span class="kd">def</span> <span class="n">command</span><span class="p">(</span><span class="n">_state</span><span class="p">),</span>
+    <span class="ss">do</span><span class="p">:</span>
+      <span class="n">oneof</span><span class="p">([</span>
+        <span class="p">{</span><span class="ss">:call</span><span class="p">,</span> <span class="nc">Transaction</span><span class="p">,</span> <span class="ss">:transfer</span><span class="p">,</span> <span class="p">[</span><span class="n">account</span><span class="p">(),</span> <span class="n">account</span><span class="p">(),</span> <span class="n">integer</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">)]}</span>
+      <span class="p">])</span>
+
+  <span class="kd">def</span> <span class="n">next_state</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">res</span><span class="p">,</span> <span class="p">{</span><span class="ss">:call</span><span class="p">,</span> <span class="nc">Transaction</span><span class="p">,</span> <span class="ss">:transfer</span><span class="p">,</span> <span class="p">[</span><span class="n">from</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">amount</span><span class="p">]})</span> <span class="k">do</span>
+    <span class="k">if</span> <span class="nc">Map</span><span class="o">.</span><span class="n">fetch!</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">from</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">amount</span> <span class="k">do</span>
+      <span class="n">state</span>
+      <span class="o">|&gt;</span> <span class="nc">Map</span><span class="o">.</span><span class="n">update!</span><span class="p">(</span><span class="n">from</span><span class="p">,</span> <span class="o">&amp;</span><span class="p">(</span><span class="ni">&amp;1</span> <span class="o">-</span> <span class="n">amount</span><span class="p">))</span>
+      <span class="o">|&gt;</span> <span class="nc">Map</span><span class="o">.</span><span class="n">update!</span><span class="p">(</span><span class="n">to</span><span class="p">,</span> <span class="o">&amp;</span><span class="p">(</span><span class="ni">&amp;1</span> <span class="o">+</span> <span class="n">amount</span><span class="p">))</span>
+    <span class="k">else</span>
+      <span class="n">state</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="kd">def</span> <span class="n">postcondition</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="p">{</span><span class="ss">:call</span><span class="p">,</span> <span class="nc">Transaction</span><span class="p">,</span> <span class="ss">:transfer</span><span class="p">,</span> <span class="p">[</span><span class="n">from</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">amount</span><span class="p">]},</span> <span class="n">res</span><span class="p">)</span> <span class="k">do</span>
+    <span class="k">case</span> <span class="n">res</span> <span class="k">do</span>
+      <span class="ss">:ok</span> <span class="o">-&gt;</span> <span class="nc">Map</span><span class="o">.</span><span class="n">fetch!</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">from</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">amount</span>
+      <span class="ss">:no_funds</span> <span class="o">-&gt;</span> <span class="nc">Map</span><span class="o">.</span><span class="n">fetch!</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">from</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">amount</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="kd">def</span> <span class="n">precondition</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="p">{</span><span class="ss">:call</span><span class="p">,</span> <span class="nc">Transaction</span><span class="p">,</span> <span class="ss">:transfer</span><span class="p">,</span> <span class="p">[</span><span class="n">from</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">amount</span><span class="p">]})</span> <span class="k">do</span>
+    <span class="n">from</span> <span class="o">!=</span> <span class="n">to</span>
+  <span class="k">end</span>
+
+  <span class="kd">defp</span> <span class="n">initial_balance</span><span class="p">(),</span> <span class="ss">do</span><span class="p">:</span> <span class="mi">3</span>
+
+  <span class="kd">defp</span> <span class="n">account</span><span class="p">(),</span> <span class="ss">do</span><span class="p">:</span> <span class="n">oneof</span><span class="p">([</span><span class="ss">:a</span><span class="p">,</span> <span class="ss">:b</span><span class="p">,</span> <span class="ss">:c</span><span class="p">])</span>
+<span class="k">end</span>
+</code></pre></div>
+</details>
+
+<p>Here, we set a pre-condition on the transfer so we don’t transfer from an account to itself. That’ll guide the command generation phase.</p>
+<p>Let’s see it break!</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode example">OK: Passed 1000 test(s).
+
+100.0% {Transaction, :transfer, 3}
+.
+
+Finished in 2.7 seconds (2.7s async, 0.00s sync)
+1 property, 0 failures
+</code></pre></div>
+<p>What?! That implementation is obviously broken, yet all tests passed? How come?</p>
+<p>The issue is that this concurrency bug depends on special interleavings of the processes, which are rare in the schedulings of most executions, in particular if the system is not under heavy stress.</p>
+<p>To increase the chance of such rare interleavings, we have to sprinkle <code>:erlang.yield/0</code> calls between function calls which might lead to race conditions. Luckily, PropCheck has some facilities to do that for us: we just have to instrument the implementation module with <code>Instrument.instrument_module(Impl, YieldInstrumenter)</code>. Unfortunately, Mnesia functions are not among the default functions targeted by <code>Instrumenter</code>. We simply need to make our own instrumenter extending the default one:</p>
+<details>
+<summary> Custom Yield Instrumenter </summary>
+
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">defmodule</span> <span class="nc">PropCheck.MyYieldInstrumenter</span> <span class="k">do</span>
+  <span class="kn">require</span> <span class="nc">Logger</span>
+
+  <span class="kn">alias</span> <span class="nc">PropCheck.Instrument</span>
+
+  <span class="na">@behaviour</span> <span class="nc">Instrument</span>
+
+  <span class="na">@impl</span> <span class="no">true</span>
+  <span class="kd">def</span> <span class="n">handle_function_call</span><span class="p">(</span><span class="n">call</span><span class="p">)</span> <span class="k">do</span>
+    <span class="nc">Logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;handle_function: </span><span class="si">#{</span><span class="n">inspect</span><span class="p">(</span><span class="n">call</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nc">Instrument</span><span class="o">.</span><span class="n">prepend_call</span><span class="p">(</span><span class="n">call</span><span class="p">,</span> <span class="nc">Instrument</span><span class="o">.</span><span class="n">call_yield</span><span class="p">())</span>
+  <span class="k">end</span>
+
+  <span class="na">@impl</span> <span class="no">true</span>
+  <span class="kd">def</span> <span class="n">is_instrumentable_function</span><span class="p">(</span><span class="n">mod</span> <span class="o">=</span> <span class="p">{</span><span class="ss">:atom</span><span class="p">,</span> <span class="n">_meta1</span><span class="p">,</span> <span class="n">module</span><span class="p">},</span> <span class="n">fun</span> <span class="o">=</span> <span class="p">{</span><span class="ss">:atom</span><span class="p">,</span> <span class="bp">_</span><span class="p">,</span> <span class="n">function</span><span class="p">})</span> <span class="k">do</span>
+    <span class="p">[</span>
+      <span class="p">{</span><span class="ss">:mnesia</span><span class="p">,</span> <span class="ss">:dirty_read</span><span class="p">},</span>
+      <span class="p">{</span><span class="ss">:mnesia</span><span class="p">,</span> <span class="ss">:dirty_write</span><span class="p">},</span>
+      <span class="p">{</span><span class="ss">:mnesia</span><span class="p">,</span> <span class="ss">:read</span><span class="p">},</span>
+      <span class="p">{</span><span class="ss">:mnesia</span><span class="p">,</span> <span class="ss">:wread</span><span class="p">},</span>
+      <span class="p">{</span><span class="ss">:mnesia</span><span class="p">,</span> <span class="ss">:write</span><span class="p">},</span>
+      <span class="p">{</span><span class="ss">:mnesia</span><span class="p">,</span> <span class="ss">:transaction</span><span class="p">}</span>
+    <span class="p">]</span>
+    <span class="o">|&gt;</span> <span class="nc">MapSet</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+    <span class="o">|&gt;</span> <span class="nc">MapSet</span><span class="o">.</span><span class="n">member?</span><span class="p">({</span><span class="n">module</span><span class="p">,</span> <span class="n">function</span><span class="p">})</span>
+    <span class="o">|&gt;</span> <span class="nc">Kernel</span><span class="o">.||</span><span class="p">(</span><span class="nc">Instrument</span><span class="o">.</span><span class="n">instrumentable_function</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">fun</span><span class="p">))</span>
+  <span class="k">end</span>
+  <span class="kd">def</span> <span class="n">is_instrumentable_function</span><span class="p">(</span><span class="bp">_</span><span class="p">,</span> <span class="bp">_</span><span class="p">),</span> <span class="ss">do</span><span class="p">:</span> <span class="no">false</span>
+<span class="k">end</span>
+</code></pre></div>
+</details>
+
+<p>And then we instrument our module before running the tests. That’s why I put the code in a separate module that’s compiled (not an <code>.exs</code> file):</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode diff">setup_all do
+<span class="gi">+ Instrument.instrument_module(Transaction, MyYieldInstrumenter)</span>
+  :ok = :mnesia.start()
+  :ok
+end
+</code></pre></div>
+<p>Alternatively, we could sprinkle the <code>:erlang.yield()</code> calls ourselves.</p>
+<p>Running the instrumented code then yields the expected failure:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode example">!
+Failed: After 1 test(s).
+
+# ✀ -- snip -- ✀
+
+Shrinking ...(3 time(s))
+{[],
+ [
+   [{:set, {:var, 2}, {:call, Transaction, :transfer, [:a, :c, 3]}}],
+   [{:set, {:var, 4}, {:call, Transaction, :transfer, [:a, :b, 3]}}]
+ ]}
+
+================================================================================
+Concurrency Failure, we don't show the state :-/
+
+Sequential commands:
+
+
+Process 1:
+   var2 = Transaction.transfer(:a, :c, 3)
+        # -&gt; :ok
+
+
+Process 2:
+   var4 = Transaction.transfer(:a, :b, 3)
+        # -&gt; :ok
+
+
+
+Result: :no_possible_interleaving
+Accounts: [{:balances, :c, 6}, {:balances, :b, 6}, {:balances, :a, 0}]
+</code></pre></div>
+<p>The minimal failing test in this case is simple: two processes try to transfer from the same account concurrently. Wrapping everything in a transaction should fix the problem:</p>
+<details>
+<summary> Fixed Bank Transaction module </summary>
+
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">defmodule</span> <span class="nc">Transaction</span> <span class="k">do</span>
+  <span class="kd">def</span> <span class="n">transfer</span><span class="p">(</span><span class="n">from</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">amount</span><span class="p">)</span> <span class="k">do</span>
+    <span class="p">{</span><span class="ss">:atomic</span><span class="p">,</span> <span class="n">res</span><span class="p">}</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">transaction</span><span class="p">(</span><span class="k">fn</span> <span class="o">-&gt;</span>
+      <span class="p">[{</span><span class="bp">_</span><span class="p">,</span> <span class="bp">_</span><span class="p">,</span> <span class="n">prev_from</span><span class="p">}]</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">wread</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">from</span><span class="p">})</span>
+      <span class="p">[{</span><span class="bp">_</span><span class="p">,</span> <span class="bp">_</span><span class="p">,</span> <span class="n">prev_to</span><span class="p">}]</span> <span class="o">=</span> <span class="ss">:mnesia</span><span class="o">.</span><span class="n">wread</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">to</span><span class="p">})</span>
+      <span class="k">if</span> <span class="n">prev_from</span> <span class="o">&gt;=</span> <span class="n">amount</span> <span class="k">do</span>
+        <span class="ss">:mnesia</span><span class="o">.</span><span class="n">write</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">from</span><span class="p">,</span> <span class="n">prev_from</span> <span class="o">-</span> <span class="n">amount</span><span class="p">})</span>
+        <span class="ss">:mnesia</span><span class="o">.</span><span class="n">write</span><span class="p">({</span><span class="ss">:balances</span><span class="p">,</span> <span class="n">to</span><span class="p">,</span> <span class="n">prev_to</span> <span class="o">+</span> <span class="n">amount</span><span class="p">})</span>
+        <span class="ss">:ok</span>
+      <span class="k">else</span>
+        <span class="ss">:no_funds</span>
+      <span class="k">end</span>
+    <span class="k">end</span><span class="p">)</span>
+    <span class="n">res</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div>
+</details>
+
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode example">OK: Passed 1000 test(s).
+
+100.0% {Transaction, :transfer, 3}
+.
+
+Finished in 11.5 seconds (11.5s async, 0.00s sync)
+1 property, 0 failures
+</code></pre></div>
+<p>Very cool! I hope to be able to apply more of this to my real world problems! 🍻</p>
+<section class="footnotes" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p><a href="https://medium.com/@tylerneely/reliable-systems-series-model-based-property-testing-e89a433b360">Reliable Systems Series: Model-Based Testing - Tyler Neely</a><a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p><a href="https://www.youtube.com/watch?v=zi0rHwfiX1Q">Testing the Hard Stuff and Staying Sane - John Hughes</a><a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3" role="doc-endnote"><p><a href="https://www.youtube.com/watch?v=q0wZzFUYCuM">Introduction to Stateful Property Testing - Tomasz Kowal</a><a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn4" role="doc-endnote"><p>It seems that people use parallel execution so seldomly that I even found a <a href="https://github.com/alfert/propcheck/pull/214">couple</a> <a href="https://github.com/alfert/propcheck/pull/214#issuecomment-1214483621">bugs</a> when exploring this simple example.<a href="#fnref4" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>

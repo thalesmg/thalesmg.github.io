@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Delimited Continuations with shift/reset in Elixir</title>
+        <link rel="stylesheet" href="../css/default.css" />
+        <link rel="stylesheet" href="../css/code.css" />
+        <link rel="stylesheet" href="../css/pygments.css" />
+        <link rel="stylesheet" href="../css/gist.css" />
+    </head>
+    <body class="tj">
+        <header>
+            <div class="logo">
+                <a href="../">thalesmg</a>
+            </div>
+            <nav>
+                <a href="../">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../archive.html">Archive</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <h1>Delimited Continuations with shift/reset in Elixir</h1>
+            <article>
+  
+  <div>
+    
+<span class="f6">
+  tags:
+  
+  <a href="../tags/elixir.html" class="ba br3">elixir</a>
+  ;
+  
+  <a href="../tags/delimited%20continuations.html" class="ba br3">delimited continuations</a>
+  ;
+  
+  <a href="../tags/proof%20of%20concept.html" class="ba br3">proof of concept</a>
+  
+</span>
+
+
+  </div>
+  
+    <section class="header">
+        Posted on 2021-08-27
+        
+    </section>
+    <section>
+        <ul>
+<li><a href="#sec:introduction">Introduction</a></li>
+<li><a href="#sec:examples">Examples</a></li>
+<li><a href="#sec:limitations">Limitations</a></li>
+<li><a href="#sec:references-and-further-resources">References and further resources</a></li>
+<li><a href="#sec:appendix">Appendix</a></li>
+<li><a href="#sec:footnotes">Footnotes</a></li>
+</ul>
+<h1 id="sec:introduction">Introduction</h1>
+<p>Ever since I heard about those things called “continuations”, I’ve been fascinated by what they are and how they work, specially after discovering this thing called <code>callCC</code><a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> <a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a>. If this was not hard enough to grasp, some time later I discovered that continuations can be <em>delimited</em> or <em>undelimited</em>. Recently I found several references about continuations<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a>, but they tend to be papers that are hard to read without some prior knowledge, which I don’t have. Therefore, I’m unable to present here some intuitive explanation about them. Maybe after much more reading.</p>
+<p>Instead, this post is about a proof of concept (POC) delimited continuations library in Elixir. This is the result of my attempts at trying to understand (delimited) continuations by way of practice. The resulting library converts Elixir code into continuation passing style, and then uses that transformed code to implement the control operators <code>shift</code> and <code>reset</code>. Theses things will be briefly discussed here. I hope this may help someone else trying to grasp continuations and, if I’m lucky, someone may teach me more by pointing out the gaps in my understanding and implementation. =)</p>
+<p>This post presents some (hopefully) interesting examples of what can be done using those operators. A very simplistic (and perhaps erroneous, as I’m still grasping those concepts… beware!) explanation of what I gathered so far about this topic and a few implementation details I stumbled upon are presented in the <a href="#sec:appendix">appendix</a>. The implementation is available on <a href="https://github.com/thalesmg/campinas/tree/2d41f2697395c2fc542500ad32c62f0f307c7220">Github</a>.</p>
+<h1 id="sec:examples">Examples</h1>
+<p>Here, I’ll present the basic usage of the library and some examples. For more on <a href="#sec:cps">CPS</a> and <a href="sec:shift---reset"><code>shift/reset</code></a>, see the corresponding sections. Several examples will slowly build over one another because I found it interesting to do so when I was trying to grasp the concepts myself gradually.</p>
+<p>The experimental library is Campinas<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a>, available on <a href="https://github.com/thalesmg/campinas/tree/2d41f2697395c2fc542500ad32c62f0f307c7220">Github</a>. To use it, just add <code>use Campinas</code> at the beginning of your module, define functions to be CPSed using the <code>defcps/2</code> macro and run them using the <code>runCPS/1</code> macro. Notice that the current implementation is pretty much a POC, so several AST nodes are not yet supported, such as pipes, <code>for/1</code>, <code>receive/after</code> blocks and many others.</p>
+<p>The most basic example is one where nothing fancy is done:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">defmodule</span> <span class="nc">Example</span> <span class="k">do</span>
+  <span class="kn">use</span> <span class="nc">Campinas</span>
+
+  <span class="n">defcps</span> <span class="n">ex1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">y</span> <span class="o">-</span> <span class="mi">3</span>
+    <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>Running <code>runCPS(Example.ex1(10))</code> gives <code>6</code>, as expected.</p>
+<p>Things start to get a bit more interesting when we introduce <code>shift/reset</code>. I’ll give a few very basic examples with growing complexity to try to demonstrate how those work intuitively. First, using just <code>reset</code> basically does nothing by itself:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex2</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">reset</span> <span class="k">do</span>
+        <span class="mi">4</span>
+      <span class="k">end</span>
+  <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>
+<span class="k">end</span>
+</code></pre></div>
+<p><code>runCPS(Example.ex2())</code> results in <code>5</code>, as if <code>reset</code> wasn’t there. Similarly, an expression using only <code>shift</code> appears to have no visible effects as well (<code>cont</code> is the name we give our continuation; it can be something else as well):</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex3</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+    <span class="mi">6</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div>
+<p><code>runCPS(Example.ex3())</code> indeed results in <code>6</code>. The first strange example is one where we use <code>shift</code> in a more complex expression. Let’s take <code>ex1</code> and use <code>shift</code> in its second expression: <span id="example_ex4"></span></p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex4</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+  <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+            <span class="mi">99</span>
+          <span class="k">end</span> <span class="o">-</span> <span class="mi">3</span>
+  <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>If <code>shift</code> were truly a no-op, one would expect <code>runCPS(Example.ex4(10))</code> to yield <code>65</code>. Yet, the final result is <code>99</code>! It is as if invoking <code>shift</code> acts like an early function exit such as <code>return</code> from a more imperative language. Notice that we didn’t invoke the continuation inside <code>shift</code>. If we do that:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex5</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+  <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">shift</span> <span class="n">k</span> <span class="k">do</span>  <span class="c1"># also changed the name, for fun</span>
+            <span class="n">k</span><span class="p">(</span><span class="mi">99</span><span class="p">)</span>     <span class="c1"># here we invoke the captured continuation</span>
+          <span class="k">end</span> <span class="o">-</span> <span class="mi">3</span>
+  <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>… then, indeed, <code>runCPS(Example.ex5(10))</code> yields <code>65</code>. But what if we do more than simply invoking the continuation inside <code>shift</code>?</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex6</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+  <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">shift</span> <span class="n">k</span> <span class="k">do</span>
+            <span class="n">k</span><span class="p">(</span><span class="mi">99</span><span class="p">)</span> <span class="o">-</span> <span class="mi">60</span>
+          <span class="k">end</span> <span class="o">-</span> <span class="mi">3</span>
+  <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>This results in <code>5</code>! In effect, it is the same as <code>ex4</code>, but with <code>60</code> subtracted from it. Essentially, when we invoke <code>shift</code>, the whole function result is <code>shift</code>’s body. In this example, the continuation is a function that is roughly equivalent to <code>fn v -&gt; div(2 * v - 3, 3)
+end</code>.</p>
+<p>That behavior is changed when we add <code>reset</code> to the mix. It effectively <em>delimits</em> the extent to which <code>shift</code> can capture the continuation.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex7</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+  <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="n">reset</span> <span class="k">do</span>
+        <span class="mi">2</span> <span class="o">*</span> <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+              <span class="n">cont</span><span class="p">(</span><span class="mi">99</span><span class="p">)</span> <span class="o">-</span> <span class="mi">60</span>
+            <span class="k">end</span>
+      <span class="k">end</span> <span class="o">-</span> <span class="mi">3</span>
+  <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>The result now is <code>45</code>. The captured continuation is now equivalent to <code>fn v -&gt; 2 * v end</code> because of the enclosing <code>reset</code>. Another interesting thing is that the continuation may be invoke more than once. The following example results in <code>13</code>:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex8</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="n">reset</span> <span class="k">do</span>
+        <span class="mi">2</span> <span class="o">*</span> <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+              <span class="n">cont</span><span class="p">(</span><span class="n">cont</span><span class="p">(</span><span class="mi">8</span><span class="p">))</span> <span class="o">+</span> <span class="mi">11</span>
+            <span class="k">end</span>
+      <span class="k">end</span> <span class="o">-</span> <span class="mi">3</span>
+  <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>Multiple CPSed functions that use <code>shift</code> and <code>reset</code> can be composed using the <em>ad-hoc</em> syntax <code>@[expression]</code>. We can break up <code>ex8</code> into two smaller functions, and has the same behavior as before:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex9</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+    <span class="n">cont</span><span class="p">(</span><span class="n">cont</span><span class="p">(</span><span class="mi">8</span><span class="p">))</span> <span class="o">+</span> <span class="mi">11</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="n">defcps</span> <span class="n">ex10</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="n">reset</span> <span class="k">do</span>
+        <span class="mi">2</span> <span class="o">*</span> <span class="err">@</span><span class="p">[</span><span class="n">ex9</span><span class="p">()]</span>
+      <span class="k">end</span> <span class="o">-</span> <span class="mi">3</span>
+  <span class="n">div</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>We can also <code>shift</code> inside of a tuple literal:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex11</span><span class="p">()</span> <span class="k">do</span>
+  <span class="p">{</span>
+    <span class="mi">1</span><span class="p">,</span>
+    <span class="mi">2</span><span class="p">,</span>
+    <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+      <span class="nc">Tuple</span><span class="o">.</span><span class="n">to_list</span><span class="p">(</span><span class="n">cont</span><span class="p">(</span><span class="mi">99</span><span class="p">))</span>
+    <span class="k">end</span><span class="p">,</span>
+    <span class="mi">4</span>
+  <span class="p">}</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>This results in <code>[1, 2, 99, 4]</code>.</p>
+<p>A more bizarre example taken from one of the original papers that introduce <code>shift/reset</code><a href="#fn5" class="footnote-ref" id="fnref5" role="doc-noteref"><sup>5</sup></a> is one that writes seemingly direct code to compute “non-deterministically” combinations of numbers that add up to a given value. We need to define a few functions that do the magic:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="na">@doc</span> <span class="s2">&quot;aborts the computation early&quot;</span>
+<span class="n">defcps</span> <span class="n">fail</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">shift</span> <span class="n">k</span> <span class="k">do</span>
+    <span class="ss">:no</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="na">@doc</span> <span class="s2">&quot;tries to continue with both true and false&quot;</span>
+<span class="n">defcps</span> <span class="n">flip</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">shift</span> <span class="n">k</span> <span class="k">do</span>
+    <span class="n">k</span><span class="p">(</span><span class="no">true</span><span class="p">)</span>
+    <span class="n">k</span><span class="p">(</span><span class="no">false</span><span class="p">)</span>
+    <span class="err">@</span><span class="p">[</span><span class="n">fail</span><span class="p">()]</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="na">@doc</span> <span class="s2">&quot;continues with all numbers below a maximum&quot;</span>
+<span class="n">defcps</span> <span class="n">choice</span><span class="p">(</span><span class="n">n</span><span class="p">)</span> <span class="k">do</span>
+  <span class="c1"># by the way, `if` is supported</span>
+  <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="k">do</span>
+    <span class="err">@</span><span class="p">[</span><span class="n">fail</span><span class="p">()]</span>
+  <span class="k">else</span>
+    <span class="k">if</span> <span class="err">@</span><span class="p">[</span><span class="n">flip</span><span class="p">()]</span> <span class="k">do</span>
+      <span class="err">@</span><span class="p">[</span><span class="n">choice</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span>
+    <span class="k">else</span>
+      <span class="n">n</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="na">@doc</span> <span class="sh">&quot;&quot;&quot;</span>
+<span class="sh">tries to find all x &gt; y &gt; z with x &lt;= n such that x + y + z = s</span>
+<span class="sh">&quot;&quot;&quot;</span>
+<span class="n">defcps</span> <span class="n">triples</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">s</span><span class="p">)</span> <span class="k">do</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="err">@</span><span class="p">[</span><span class="n">choice</span><span class="p">(</span><span class="n">n</span><span class="p">)]</span>
+  <span class="n">y</span> <span class="o">=</span> <span class="err">@</span><span class="p">[</span><span class="n">choice</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span>
+  <span class="n">z</span> <span class="o">=</span> <span class="err">@</span><span class="p">[</span><span class="n">choice</span><span class="p">(</span><span class="n">y</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span>
+
+  <span class="k">if</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="n">s</span> <span class="k">do</span>
+    <span class="n">send</span><span class="p">(</span><span class="n">self</span><span class="p">(),</span> <span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">}})</span>
+  <span class="k">else</span>
+    <span class="err">@</span><span class="p">[</span><span class="n">fail</span><span class="p">()]</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>Then, to find such triples with <code>n = 9</code> and <code>s = 15</code>:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">defcps</span> <span class="n">ex12</span><span class="p">()</span> <span class="k">do</span>
+  <span class="err">@</span><span class="p">[</span><span class="n">triples</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="mi">15</span><span class="p">)]</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>Running this yields:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">iex</span><span class="p">(</span><span class="mi">201</span><span class="p">)</span><span class="o">&gt;</span> <span class="n">runCPS</span><span class="p">(</span><span class="nc">Example</span><span class="o">.</span><span class="n">ex12</span><span class="p">())</span>
+<span class="ss">:no</span>
+<span class="n">iex</span><span class="p">(</span><span class="mi">202</span><span class="p">)</span><span class="o">&gt;</span> <span class="n">flush</span><span class="p">()</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">6</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">7</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">7</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">2</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">8</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">1</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">9</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">2</span><span class="p">}}</span>
+<span class="p">{</span><span class="ss">:found</span><span class="p">,</span> <span class="p">{</span><span class="mi">9</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">}}</span>
+<span class="ss">:ok</span>
+<span class="n">iex</span><span class="p">(</span><span class="mi">203</span><span class="p">)</span><span class="o">&gt;</span>
+</code></pre></div>
+<h2 id="sec:effect-systems">Effect systems</h2>
+<p>As the final example, I’ll show simple error and state effects built upon those operators. It has been observed that delimited continuations can be used to model effect systems<a href="#fn6" class="footnote-ref" id="fnref6" role="doc-noteref"><sup>6</sup></a> <a href="#fn7" class="footnote-ref" id="fnref7" role="doc-noteref"><sup>7</sup></a>.</p>
+<p>The simplest one is the error effect. Reminding ourselves of example <a href="#example_ex4"><code>ex4</code></a>, an early exit would be implemented as simply as calling <code>shift</code>. To add extra spice, we’ll consider <em>recoverable</em> exceptions: the user provides a handler that receives the error <code>e</code> and decides if computation should halt and return <code>{:error, e}</code>, or if it should continue (and provide a value back to the computation).</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"> <span class="c1"># the program</span>
+<span class="kd">defmodule</span> <span class="nc">ErrorExample</span> <span class="k">do</span>
+  <span class="kn">use</span> <span class="nc">Campinas</span>
+  <span class="kn">alias</span> <span class="nc">Campinas.Effects.Error</span>
+
+  <span class="n">defcps</span> <span class="n">program1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span> <span class="o">-</span> <span class="mi">1</span>
+
+    <span class="k">if</span> <span class="n">y</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="k">do</span>
+      <span class="err">@</span><span class="p">[</span><span class="nc">Error</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="ss">:negative</span><span class="p">)]</span>
+    <span class="k">end</span>
+
+    <span class="n">result</span> <span class="o">=</span>
+    <span class="k">if</span> <span class="n">y</span> <span class="o">&gt;</span> <span class="mi">100</span> <span class="k">do</span>
+      <span class="err">@</span><span class="p">[</span><span class="nc">Error</span><span class="o">.</span><span class="n">error</span><span class="p">({</span><span class="ss">:too_big</span><span class="p">,</span> <span class="n">y</span><span class="p">})]</span>
+    <span class="k">else</span>
+      <span class="n">div</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">end</span>
+
+    <span class="n">result</span> <span class="o">-</span> <span class="mi">1</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="c1"># the usage</span>
+<span class="n">handler</span> <span class="o">=</span> <span class="k">fn</span>
+  <span class="p">{</span><span class="ss">:too_big</span><span class="p">,</span> <span class="n">n</span><span class="p">}</span> <span class="o">-&gt;</span>
+    <span class="n">send</span><span class="p">(</span><span class="n">self</span><span class="p">(),</span> <span class="p">{</span><span class="ss">:big_number</span><span class="p">,</span> <span class="n">n</span><span class="p">})</span>
+
+  <span class="k">if</span> <span class="n">rem</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">do</span>
+    <span class="p">{</span><span class="ss">:cont</span><span class="p">,</span> <span class="mi">0</span><span class="p">}</span>
+  <span class="k">else</span>
+    <span class="ss">:halt</span>
+  <span class="k">end</span>
+
+  <span class="n">e</span> <span class="o">-&gt;</span>
+    <span class="n">send</span><span class="p">(</span><span class="n">self</span><span class="p">(),</span> <span class="p">{</span><span class="ss">:some_error</span><span class="p">,</span> <span class="n">e</span><span class="p">})</span>
+  <span class="ss">:halt</span>
+<span class="k">end</span>
+
+<span class="n">run_error</span><span class="p">(</span><span class="nc">ErrorExample</span><span class="o">.</span><span class="n">program1</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">handler</span><span class="p">)</span>
+<span class="c1"># should return `{:ok, 0}` without calling the handler</span>
+
+<span class="n">run_error</span><span class="p">(</span><span class="nc">ErrorExample</span><span class="o">.</span><span class="n">program1</span><span class="p">(</span><span class="mi">11</span><span class="p">),</span> <span class="n">handler</span><span class="p">)</span>
+<span class="c1"># should return `{:ok, -1}` and call the handler, which continues</span>
+
+<span class="n">run_error</span><span class="p">(</span><span class="nc">ErrorExample</span><span class="o">.</span><span class="n">program1</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">handler</span><span class="p">)</span>
+<span class="c1"># returns `{:error, :negative}` and call the handler, which aborts</span>
+</code></pre></div>
+<p>The state effect is our last example. It has two operations: <code>get/0</code>, which simply reads the current state, and <code>set/1</code>, which defines a new state. The stateful program is run by being fed to <code>run_state/2</code> along with the initial state. This returns <code>{:ok, result, final_state}</code>.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="c1"># the program</span>
+<span class="kd">defmodule</span> <span class="nc">StateExample</span> <span class="k">do</span>
+  <span class="kn">use</span> <span class="nc">Campinas</span>
+  <span class="kn">alias</span> <span class="nc">Campinas.Effects.State</span>
+
+  <span class="n">defcps</span> <span class="n">program1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">s1</span> <span class="o">=</span> <span class="err">@</span><span class="p">[</span><span class="nc">State</span><span class="o">.</span><span class="n">get</span><span class="p">()]</span>
+    <span class="n">s2</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">s1</span>
+
+    <span class="k">if</span> <span class="n">rem</span><span class="p">(</span><span class="n">s2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">do</span>
+      <span class="err">@</span><span class="p">[</span><span class="nc">State</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">s2</span> <span class="o">+</span> <span class="mi">11</span><span class="p">)]</span>
+    <span class="k">else</span>
+      <span class="err">@</span><span class="p">[</span><span class="nc">State</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="mi">4</span> <span class="o">*</span> <span class="n">s2</span><span class="p">)]</span>
+    <span class="k">end</span>
+
+    <span class="mi">2</span> <span class="o">*</span> <span class="n">s2</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="c1"># the usage</span>
+<span class="n">run_state</span><span class="p">(</span><span class="nc">StateCases</span><span class="o">.</span><span class="n">program1</span><span class="p">(</span><span class="mi">11</span><span class="p">),</span> <span class="mi">20</span><span class="p">)</span>
+<span class="c1"># returns `{:ok, 63, 124}`; 63 is the result; 124 is the final state</span>
+
+<span class="n">run_state</span><span class="p">(</span><span class="nc">StateCases</span><span class="o">.</span><span class="n">program1</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span> <span class="mi">20</span><span class="p">)</span>
+<span class="c1"># returns `{:ok, 61, 41}`; 61 is the result; 41 is the final state</span>
+</code></pre></div>
+<p>Notice that there is no mutation involved, nor exceptions being raised/thrown (in the Elixir/Erlang sense) in those examples. ;)</p>
+<h1 id="sec:limitations">Limitations</h1>
+<p>I have not implemented several AST node possibilities in the transformation, so almost anything outside the examples in the tests will probably not work. =)</p>
+<p>The example from the composable-continuation tutorial on the Scheme Wiki does not work with the current version. I believe that <code>Enum.each</code> (the equivalent of <code>for-each</code> there) would need to be CPSed for that to work.</p>
+<h1 id="sec:references-and-further-resources">References and further resources</h1>
+<p>Here are some resources I have used, not necessarily in their entirety, and others that I have found while researching this topic.</p>
+<ul>
+<li><p><a href="https://www.youtube.com/watch?v=QNM-njddhIw">Delimited Continuations for Everyone by Kenichi Asai (Youtube)</a></p>
+<p>Nice video explaining delimited continuations with examples. It is also where I found some recommendations of further resources (around 01:30).</p></li>
+<li><p><a href="https://www.cambridge.org/core/journals/mathematical-structures-in-computer-science/article/abs/representing-control-a-study-of-the-cps-transformation/37193FD94F87443338FC7F519783FF0A">Olivier Danvy and Andre Filinski, “Representing Control: a Study of the CPS Transformation”, MSCS, 1992</a></p>
+<p>The introductory paper recommended by Kenichi Asai. It does seem to have some prior knowledge assumptions, but seems very comprehensive and has very helpful tables of conversion rules for CPSing programs.</p></li>
+<li><p><a href="https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.8753">Olivier Danvy and Andre Filinski, “Abstracting Control,” LISP and Functional Programming, 1990</a></p>
+<p>Another earlier paper by the authors who introduced <code>shift</code> and <code>reset</code>. It is more compact, has a couple examples, but is much more dense and harder to understand (much more assumed knowledge about concepts and notation).</p></li>
+<li><p><a href="https://docs.racket-lang.org/reference/cont.html">Racket Reference Manual on Continuations</a></p>
+<p>Great source of references and displays other control operators. Not quite didactic, but I recommend browsing it and trying out the operators, since the implementation is solid in Racket.</p></li>
+<li><p><a href="http://community.schemewiki.org/?composable-continuations-tutorial">Composable Continuations Tutorial on Scheme Wiki</a></p>
+<p>A nice and short tutorial with some examples that are very illuminating examples that are valuable to be worked out manually.</p></li>
+<li><p><a href="https://github.com/swannodette/delimc"><code>delimc</code> by David Nolen</a></p>
+<p>A delimited continuations library for Clojure. Nice and short implementation to study.</p></li>
+<li><p><a href="https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0313-delimited-continuation-primops.rst">The proposal to add delimited control primops to GHC</a> and <a href="https://mail.haskell.org/pipermail/ghc-devs/2020-July/019016.html">a companion email thread</a> <span id="ref_ghc_primops_alexis"></span></p>
+<p>Low level discussion of adding control operators similar to <code>shift</code> and <code>reset</code> to GHC, and how these affect the execution stack.</p></li>
+<li><p><a href="https://stackoverflow.com/a/29838823/2708711">This answer to a StackOverflow question about continuation prompts by Alexis King</a> <span id="ref_stackoverflow_alexis"></span></p>
+<p>Has some nice visualizations relating stack frames and delimited continuations.</p></li>
+<li><p><a href="https://wingolog.org/archives/2010/02/26/guile-and-delimited-continuations">guile and delimited continuations, by Andy Wingo</a> <span id="ref_guile_wingo"></span></p>
+<p>One of the implementers of GNU Guile (a Scheme implementation) discusses adding delimited continuations to the language. Has some nice illustrations of the stack for the <code>control/prompt</code> operators (cousins of <code>shift/reset</code>).</p></li>
+<li><p><a href="https://github.com/rain-1/continuations-study-group">rain-1’s continuation study group</a></p>
+<p>A vast collection of papers and references about continuations in general. It’ll take quite a while to chew through all that. =)</p>
+<p>I’d love to know if this group has a forum or similar channel where one could ask questions.</p></li>
+</ul>
+<h1 id="sec:appendix">Appendix</h1>
+<h2 id="sec:continuation-passing-style--cps-">Continuation Passing Style (CPS)</h2>
+<p>This sections describes briefly what CPS is and some decisions that I had to make in the implementation in order for it to work. Although I’m still making sense of them 🙈.</p>
+<p>A continuation is the materialization of “what comes next” at a given point of execution of a program. Or, a continuation is the evaluation context surrounding the <em>reducible expression</em> (<em>redex</em>)<a href="#fn8" class="footnote-ref" id="fnref8" role="doc-noteref"><sup>8</sup></a>. Using the same example from the Racket documentation:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="c1">#  continuation</span>
+<span class="c1"># ↓↓↓↓</span>
+  <span class="mi">4</span> <span class="o">-</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<span class="c1">#     ↑↑↑↑↑↑↑</span>
+<span class="c1">#      redex</span>
+</code></pre></div>
+<p>Here, in order for the whole expression to be reduced, the redex is <code>(1 + 1)</code>, and the continuation is <code>4 - _</code>, where <code>_</code> takes the place of the redex as it is reduced. As another example:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="kd">def</span> <span class="n">some_fun</span><span class="p">()</span> <span class="k">do</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="mi">1</span>      <span class="c1"># the lines below are this expression's continuation.</span>
+  <span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="mi">2</span>  <span class="c1"># `x` is the &quot;redex&quot; that is fed here, and `_ + 3` is</span>
+             <span class="c1"># this line's continuation.</span>
+  <span class="n">y</span> <span class="o">+</span> <span class="mi">3</span>      <span class="c1"># within this line, `_ + 3` is `y`'s continuation</span>
+<span class="k">end</span>
+</code></pre></div>
+<p><em>Continuation Passing Style (CPS)</em> is a way of writing functions and expressions where the continuation is passed as an explicit argument to the redex.</p>
+<h3 id="sec:irreducible-values">Irreducible values</h3>
+<p>The simplest case is that of a value that cannot be reduced further. Using the notation<a href="#fn9" class="footnote-ref" id="fnref9" role="doc-noteref"><sup>9</sup></a> <code>[[ E ]]</code> to denote the CPS conversion of a term <code>E</code>, the conversion of a pure value is simply:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">[[ x ]] = λκ. κ x
+</code></pre></div>
+<p>In Elixir:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="c1"># a simple value...</span>
+<span class="mi">1</span>
+<span class="c1"># ... in CPS form becomes:</span>
+<span class="k">fn</span> <span class="n">k</span> <span class="o">-&gt;</span> <span class="c1"># `k` is the continuation, to be provided by some other code.</span>
+  <span class="n">k</span><span class="o">.</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="c1"># that continuation is invoked and receives the value to</span>
+        <span class="c1"># proceed.</span>
+<span class="k">end</span>
+</code></pre></div>
+<h3 id="sec:primitive-function-application">Primitive function application</h3>
+<p>Another simple case is that of primitive function application. A primitive function is one that is considered a “black box” and its definition cannot be directly converted into CPS. I considered local and remote function calls as primitives.</p>
+<p>For a primitive function <code>p</code> applied to <code>x</code>, its conversion rule is:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">[[ p x ]] = λκ. [[ x ]] (λa. κ (p a))
+</code></pre></div>
+<p>Let’s take as an example the negate unary operator, <a href="https://hexdocs.pm/elixir/Kernel.html#-/1"><code>Kernel.-/1</code></a>.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="o">-</span> <span class="n">x</span>
+<span class="c1"># ... in CPS form becomes:</span>
+<span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>         <span class="c1"># the outer continuation</span>
+  <span class="p">(</span><span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>      <span class="c1"># ─┐ this `k2` is the lambda defined below</span>
+    <span class="n">k2</span><span class="o">.</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>       <span class="c1">#  │</span>
+  <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">a</span> <span class="o">-&gt;</span>  <span class="c1"># &lt;┘</span>
+                 <span class="c1"># the outer continuation receives the result of the</span>
+    <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="o">-</span> <span class="n">a</span><span class="p">)</span>     <span class="c1"># primitive function application</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>If you manually evaluate the above expression, you’ll see that it is indeed equivalent to the original expression.</p>
+<p>If there are multiple arguments, we first have to <em>curry</em><a href="#fn10" class="footnote-ref" id="fnref10" role="doc-noteref"><sup>10</sup></a> the function before converting. This is the default behavior in a few languages such as Haskell and OCaml, but is a bit unusual in Elixir. If we start with the following for <a href="https://hexdocs.pm/elixir/Kernel.html#-/2"><code>Kernel.-/2</code></a>:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="k">fn</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">-&gt;</span>
+  <span class="n">x</span> <span class="o">-</span> <span class="n">y</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>The curried form (not yet “<em>CPSed</em>”), is equivalent to:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="k">fn</span> <span class="n">x</span> <span class="o">-&gt;</span>
+  <span class="k">fn</span> <span class="n">y</span> <span class="o">-&gt;</span>
+    <span class="n">x</span> <span class="o">-</span> <span class="n">y</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>The rule for a 2-arity primitive application is:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">[[ p x y ]] = λκ. [[ x ]] (λa. [[ y ]] (λb. κ (p a b)))
+</code></pre></div>
+<p>This rule can be extended further for more arguments. Expressing this in Elixir: <span id="cps_prim_app_minus1"></span></p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="c1"># assuming `x` and `y` are in scope here.</span>
+<span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>
+  <span class="p">(</span><span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>
+    <span class="n">k2</span><span class="o">.</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+  <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">a</span> <span class="o">-&gt;</span>
+    <span class="p">(</span><span class="k">fn</span> <span class="n">k3</span> <span class="o">-&gt;</span>
+      <span class="n">k3</span><span class="o">.</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+    <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">b</span> <span class="o">-&gt;</span>
+      <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="n">a</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span>
+    <span class="k">end</span><span class="p">)</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>Pass this thing the “final continuation” (commonly the identity function <a href="https://hexdocs.pm/elixir/Function.html#identity/1"><code>Function.identity/1</code></a> or, more compactly, <code>&amp; &amp;1</code>), you should see it results in <code>-1</code> as expected.</p>
+<p>A special case is that of 0-arity primitive functions. In that case, we just invoke the function and pass it to the continuation, as if it were a pure value.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">node</span><span class="p">()</span>
+<span class="c1"># ... becomes simply:</span>
+<span class="k">fn</span> <span class="n">k</span> <span class="o">-&gt;</span> <span class="n">k</span><span class="o">.</span><span class="p">(</span><span class="n">node</span><span class="p">())</span> <span class="k">end</span>
+</code></pre></div>
+<h3 id="sec:lambdas">Lambdas</h3>
+<p>The next case to consider is how to convert a lambda definition into CPS. To do so, we make it accept a continuation as the first argument, then immediately apply it to a lambda that takes the “original” argument. The body of this inner lambda is another lambda that takes another continuation, with the “CPSed” (converted into CPS) version of the original lambda body fed this inner continuation.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">[[ λx. M ]] = λκ1. κ1 (λx. λκ2. [[ M ]] κ2)
+</code></pre></div>
+<p>Since that is quite convoluted, let’s visualize it by considering the identity function:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="k">fn</span> <span class="n">x</span> <span class="o">-&gt;</span> <span class="n">x</span> <span class="k">end</span>
+</code></pre></div>
+<p>In CPS, it becomes:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>      <span class="c1"># the outer continuation;</span>
+  <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">x</span> <span class="o">-&gt;</span> <span class="c1"># the argument;</span>
+    <span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>  <span class="c1"># takes another continuation;</span>
+      <span class="c1"># then we CPS the body of the original lambda and feed it k2.</span>
+      <span class="c1"># [[ x ]] k2</span>
+    <span class="k">end</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+<span class="c1"># ↓↓↓↓↓↓↓↓↓↓↓↓↓</span>
+<span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>
+  <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">x</span> <span class="o">-&gt;</span>
+    <span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>
+      <span class="c1"># since it is a irreducible value, we apply the same rules as</span>
+      <span class="c1"># above.</span>
+      <span class="p">(</span><span class="k">fn</span> <span class="n">k3</span> <span class="o">-&gt;</span>
+        <span class="n">k3</span><span class="o">.</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+      <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="n">k2</span><span class="p">)</span>
+    <span class="k">end</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>In the above example, one could β-reduce<a href="#fn11" class="footnote-ref" id="fnref11" role="doc-noteref"><sup>11</sup></a> the inner lambda and simplify further. But I’ll use this β-expanded version that generalizes better for the cases below<a href="#fn12" class="footnote-ref" id="fnref12" role="doc-noteref"><sup>12</sup></a> .</p>
+<p>There is an additional detail about the rule above: if a lambda like the above is directly applied in code, as in <code>(fn x -&gt; x end).(1)</code>, then the above conversion is the one use as the CPSed lambda to be applied to <code>1</code> (as will be explored later). But if this lambda is returned as a value, one must wrap it in another continuation layer as if it were a pure value:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="c1"># the final version of our example, when returned as a value</span>
+<span class="k">fn</span> <span class="n">k0</span> <span class="o">-&gt;</span>        <span class="c1"># ← notice the extra continuation `k0`</span>
+  <span class="n">k0</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>  <span class="c1"># ←</span>
+    <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">x</span> <span class="o">-&gt;</span>
+      <span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>
+        <span class="p">(</span><span class="k">fn</span> <span class="n">k3</span> <span class="o">-&gt;</span>
+          <span class="n">k3</span><span class="o">.</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="n">k2</span><span class="p">)</span>
+      <span class="k">end</span>
+    <span class="k">end</span><span class="p">)</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>I probably have messed something thing up when implementing, but I needed to do this in order for all the thing to behave as expected. I’m curious to know the correct version of this. =)</p>
+<p>In case of multiple arguments, we curry the function as in the primitive function application case above before CPSing it with similar rules. As an example that mixes lambda definitions and primitive function applications in its body. The big highlighted area is the CPSed version of the “minus one” shown <a href="#cps_prim_app_minus1">above</a>.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="c1"># [[ fn x, y -&gt; x - y end ]]</span>
+<span class="c1">#</span>
+<span class="k">fn</span> <span class="n">k0</span> <span class="o">-&gt;</span>                        <span class="c1"># ← that extra continuation layer</span>
+  <span class="n">k0</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>                  <span class="c1"># ─┐</span>
+    <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">x</span> <span class="o">-&gt;</span>                 <span class="c1"># ─┘ stuff for the `x` argument</span>
+      <span class="k">fn</span> <span class="n">k3</span> <span class="o">-&gt;</span>
+        <span class="n">k3</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">y</span> <span class="o">-&gt;</span>
+          <span class="k">fn</span> <span class="n">k4</span> <span class="o">-&gt;</span>
+            <span class="p">(</span><span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>           <span class="c1"># ─┐</span>
+              <span class="p">(</span><span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>         <span class="c1">#  │</span>
+                <span class="n">k2</span><span class="o">.</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>          <span class="c1">#  │</span>
+              <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">a</span> <span class="o">-&gt;</span>     <span class="c1">#  │ this is the CPSed version of</span>
+                <span class="p">(</span><span class="k">fn</span> <span class="n">k3</span> <span class="o">-&gt;</span>       <span class="c1">#  │ the &quot;minus one&quot; function</span>
+                  <span class="n">k3</span><span class="o">.</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>        <span class="c1">#  │ shown above...</span>
+                <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">b</span> <span class="o">-&gt;</span>   <span class="c1">#  │</span>
+                  <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="n">a</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span>    <span class="c1">#  │</span>
+                <span class="k">end</span><span class="p">)</span>            <span class="c1">#  │</span>
+              <span class="k">end</span><span class="p">)</span>              <span class="c1">#  │</span>
+            <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="n">k4</span><span class="p">)</span>           <span class="c1"># ─┘ ... applied to the inner continuation</span>
+          <span class="k">end</span>                   <span class="c1">#    from the lambda</span>
+        <span class="k">end</span><span class="p">)</span>
+      <span class="k">end</span>
+    <span class="k">end</span><span class="p">)</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<p>This is already quite unwieldy, and anything more complicated tend to grow quite fast in complexity. A good exercise is to take these more basic examples and try to β-reduce them manually to get more intuition of what-flows-where.</p>
+<p>We give the 0-arity case a slightly different treatment: we transform the lambda body, wrap the result in a 0-arity lambda and return that to a continuation.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="k">fn</span> <span class="o">-&gt;</span> <span class="ss">:result</span> <span class="k">end</span>
+<span class="c1"># ... becomes:</span>
+<span class="k">fn</span> <span class="n">k0</span> <span class="o">-&gt;</span>             <span class="c1"># again, extra continuation layer</span>
+  <span class="n">k0</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>
+    <span class="n">k1</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="o">-&gt;</span>        <span class="c1"># notice that there is no argument here</span>
+      <span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>       <span class="c1"># ─┐</span>
+        <span class="n">k2</span><span class="o">.</span><span class="p">(</span><span class="ss">:result</span><span class="p">)</span> <span class="c1">#  │ lambda body converted</span>
+      <span class="k">end</span>            <span class="c1"># ─┘</span>
+    <span class="k">end</span><span class="p">)</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<h3 id="sec:function-application">Function application</h3>
+<p>The last type of terms I’ll attempt to show here is the application of functions to values. The implementation differentiates 3 sub-cases: i) application of values to a lambda literal; ii) application to a named lambda; iii) primitive function application. The last case was already covered <a href="#sec:primitive-function-application">above</a>, and it is things of the form <code>fun(x)</code> and <code>Node.ping()</code>. Case (i) is special because we use the converted lambda version without the extra continuation layer. Finally, case (ii) is treated specially because we assume that such function has already been curried and CPSed, so we do not convert it further and simply apply it using the rules that will be shown below.</p>
+<p>The conversion rule for an application is:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode text">[[ M N ]] = λκ. [[ M ]] (λm. [[ N ]] (λn. m n κ))
+</code></pre></div>
+<p>As a final example, we consider the application to a named lambda.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">some_fun</span><span class="o">.</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="c1"># ... becomes</span>
+<span class="k">fn</span> <span class="n">k1</span> <span class="o">-&gt;</span>
+  <span class="n">some_fun</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">m</span> <span class="o">-&gt;</span>   <span class="c1"># ← `some_fun` is considered already CPSed</span>
+    <span class="p">(</span><span class="k">fn</span> <span class="n">k2</span> <span class="o">-&gt;</span>
+      <span class="n">k2</span><span class="o">.</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>          <span class="c1"># ← CPSed argument</span>
+    <span class="k">end</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="k">fn</span> <span class="n">n</span> <span class="o">-&gt;</span>
+      <span class="n">m</span><span class="o">.</span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="o">.</span><span class="p">(</span><span class="n">k1</span><span class="p">)</span>
+    <span class="k">end</span><span class="p">)</span>
+  <span class="k">end</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div>
+<h3 id="sec:other-details">Other details</h3>
+<p>For more details, I’ll refer the reader to the implementation and to some papers that describe the transformation <a href="#fn13" class="footnote-ref" id="fnref13" role="doc-noteref"><sup>13</sup></a> <a href="#fn14" class="footnote-ref" id="fnref14" role="doc-noteref"><sup>14</sup></a> <a href="#fn15" class="footnote-ref" id="fnref15" role="doc-noteref"><sup>15</sup></a>.</p>
+<h2 id="sec:shift---reset">Shift / Reset</h2>
+<p>Ok, that was quite a lot… Why go through all this trouble?</p>
+<p>The answer is that such transformations allow us to use some control operators that are quite powerful. Some examples of applications that can be implemented as libraries are: exceptions, backtracking search, threads, generators and coroutines <a href="#fn16" class="footnote-ref" id="fnref16" role="doc-noteref"><sup>16</sup></a>.</p>
+<p>Two of those operators are <code>shift</code> and <code>reset</code>, and there are a few other more or less equivalent ones <a href="#fn17" class="footnote-ref" id="fnref17" role="doc-noteref"><sup>17</sup></a>. They are most succinctly conceptually described in the Racket documentation by the reduction rules:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode scheme"><span class="c1">;; &quot;=&gt;&quot; means &quot;reduces to&quot;</span>
+<span class="p">(</span><span class="nf">reset</span> <span class="nv">val</span><span class="p">)</span> <span class="k">=&gt; </span><span class="nv">val</span>
+<span class="p">(</span><span class="nf">reset</span> <span class="nv">E</span><span class="p">[(</span><span class="nf">shift</span> <span class="nv">k</span> <span class="nv">expr</span><span class="p">)])</span> <span class="k">=&gt; </span><span class="p">(</span><span class="nf">reset</span> <span class="p">(</span><span class="nf">λ</span> <span class="p">(</span><span class="nf">k</span><span class="p">)</span> <span class="nv">expr</span><span class="p">)</span>
+                                    <span class="p">(</span><span class="nf">λ</span> <span class="p">(</span><span class="nf">v</span><span class="p">)</span> <span class="p">(</span><span class="nf">reset</span> <span class="nv">E</span><span class="p">[</span><span class="nv">v</span><span class="p">])))</span>
+<span class="c1">;; where `E` has no `reset`</span>
+</code></pre></div>
+<p>I have not found in that documentation what <code>E[_]</code> means. But, by experimenting with the operators, it looks like it means the <em>dynamic continuation enclosing</em> the call to <code>shift</code>, up to but not including <code>reset</code>. So, in:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode scheme"><span class="p">(</span><span class="nb">+ </span><span class="mi">1</span>
+   <span class="p">(</span><span class="nf">reset</span>
+    <span class="p">(</span><span class="nb">* </span><span class="mi">2</span>
+       <span class="p">(</span><span class="nf">shift</span> <span class="nv">c</span>
+         <span class="p">(</span><span class="nb">* </span><span class="mi">3</span> <span class="p">(</span><span class="nf">c</span> <span class="mi">4</span><span class="p">))))))</span>
+</code></pre></div>
+<p>… <code>E[_]</code> means <code>(λ (v) (* 2 v))</code>. Indeed, the expression above evaluates to <code>25</code>. Using the second evaluation rule:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode scheme"><span class="p">(</span><span class="nb">+ </span><span class="mi">1</span>
+   <span class="p">(</span><span class="nf">reset</span>
+    <span class="p">((</span><span class="nf">λ</span> <span class="p">(</span><span class="nf">k</span><span class="p">)</span> <span class="p">(</span><span class="nb">* </span><span class="mi">3</span> <span class="p">(</span><span class="nf">k</span> <span class="mi">4</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nf">λ</span> <span class="p">(</span><span class="nf">v</span><span class="p">)</span> <span class="p">(</span><span class="nb">* </span><span class="mi">2</span> <span class="nv">v</span><span class="p">)))))</span>
+<span class="c1">;; β-reducing...</span>
+<span class="p">(</span><span class="nb">+ </span><span class="mi">1</span>
+   <span class="p">(</span><span class="nf">reset</span>
+    <span class="p">(</span><span class="nb">* </span><span class="mi">3</span> <span class="p">((</span><span class="nf">λ</span> <span class="p">(</span><span class="nf">v</span><span class="p">)</span> <span class="p">(</span><span class="nb">* </span><span class="mi">2</span> <span class="nv">v</span><span class="p">))</span> <span class="mi">4</span><span class="p">))))</span>
+<span class="c1">;; using the 1st reduction rule for `reset`...</span>
+<span class="p">(</span><span class="nb">+ </span><span class="mi">1</span> <span class="p">(</span><span class="nb">* </span><span class="mi">3</span> <span class="p">((</span><span class="nf">λ</span> <span class="p">(</span><span class="nf">v</span><span class="p">)</span> <span class="p">(</span><span class="nb">* </span><span class="mi">2</span> <span class="nv">v</span><span class="p">))</span> <span class="mi">4</span><span class="p">)))</span>
+<span class="c1">;; β-reducing...</span>
+<span class="p">(</span><span class="nb">+ </span><span class="mi">1</span> <span class="p">(</span><span class="nb">* </span><span class="mi">3</span> <span class="p">(</span><span class="nb">* </span><span class="mi">2</span> <span class="mi">4</span><span class="p">)))</span>
+<span class="c1">;; which yields 25</span>
+</code></pre></div>
+<p>So, shortly, <code>shift</code> captures the continuation and binds it to be used possibly multiple times. The extent of what is capture is determined by the presence of <code>reset</code>, which acts as a delimiter (hence the name <em>delimited continuations</em>).</p>
+<p>Just to illustrate, the example above could be written in Elixir as:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode elixir"><span class="n">x</span> <span class="o">=</span> <span class="n">reset</span> <span class="k">do</span>
+      <span class="mi">2</span> <span class="o">*</span> <span class="n">shift</span> <span class="n">cont</span> <span class="k">do</span>
+            <span class="mi">3</span> <span class="o">*</span> <span class="n">cont</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+          <span class="k">end</span>
+    <span class="k">end</span>
+<span class="mi">1</span> <span class="o">+</span> <span class="n">x</span>
+</code></pre></div>
+<p>I used an intermediate variable just to emphasize that the “remaining lines” after an expression are continuations for it.</p>
+<p>I’ll try to borrow the visualization ideas <a href="#ref_ghc_primops_alexis">from</a> <a href="#ref_guile_wingo">those</a> <a href="#ref_stackoverflow_alexis">references</a> and attempt to illustrate conceptually how these operators are working in this example (it is almost certainly wrong concretely, I don’t know how Elixir/Erlang break up stack frames). In the images below, each rectangle is a continuation frame, and ● are the places where the redexes go into after being reduced.</p>
+<figure>
+<img src="../images/elixir-delimited-continuations-stack1.png" title="stack1" class="db w-60 center" />
+</figure>
+<p>When <code>shift</code> is invoked, it essentially captures the frames from the current one up to the nearest enclosing <code>reset</code>, packages those up in <code>cont</code>, and replaces them with its own body frames.</p>
+<figure>
+<img src="../images/elixir-delimited-continuations-stack2.png" title="stack2" class="db w-60 center" />
+</figure>
+<p>Which reduces to <code>25</code>, as before.</p>
+<h1 id="sec:footnotes">Footnotes</h1>
+<section class="footnotes" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p><a href="https://en.m.wikibooks.org/wiki/Haskell/Continuation_passing_style#callCC">https://en.m.wikibooks.org/wiki/Haskell/Continuation_passing_style#callCC</a><a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p><a href="http://community.schemewiki.org/?call-with-current-continuation">http://community.schemewiki.org/?call-with-current-continuation</a><a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3" role="doc-endnote"><p><a href="https://github.com/rain-1/continuations-study-group">https://github.com/rain-1/continuations-study-group</a><a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn4" role="doc-endnote"><p>It is the name of a <a href="https://en.wikipedia.org/wiki/Campinas">city</a> whose contraction is <em>CPS</em>.<a href="#fnref4" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn5" role="doc-endnote"><p><a href="https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.8753">Olivier Danvy and Andre Filinski, “Abstracting Control,” LISP and Functional Programming, 1990</a><a href="#fnref5" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn6" role="doc-endnote"><p><a href="https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0313-delimited-continuation-primops.rst">https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0313-delimited-continuation-primops.rst</a><a href="#fnref6" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn7" role="doc-endnote"><p><a href="https://doi.org/10.1016/j.entcs.2015.12.003">https://doi.org/10.1016/j.entcs.2015.12.003</a><a href="#fnref7" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn8" role="doc-endnote"><p><a href="https://docs.racket-lang.org/reference/eval-model.html#%28part._cont-model%29">https://docs.racket-lang.org/reference/eval-model.html#%28part._cont-model%29</a><a href="#fnref8" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn9" role="doc-endnote"><p><a href="https://www.cambridge.org/core/journals/mathematical-structures-in-computer-science/article/abs/representing-control-a-study-of-the-cps-transformation/37193FD94F87443338FC7F519783FF0A">Olivier Danvy and Andre Filinski, “Representing Control: a Study of the CPS Transformation”, MSCS, 1992</a><a href="#fnref9" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn10" role="doc-endnote"><p><a href="https://en.wikipedia.org/wiki/Currying">https://en.wikipedia.org/wiki/Currying</a><a href="#fnref10" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn11" role="doc-endnote"><p><a href="https://en.wikipedia.org/wiki/Lambda_calculus#Reduction">https://en.wikipedia.org/wiki/Lambda_calculus#Reduction</a><a href="#fnref11" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn12" role="doc-endnote"><p>It is also one point that I could not understand quite well when reading the papers. I needed to do this for the implementation to work properly for my test cases, but the equations in [fn:6] are somewhat different.<a href="#fnref12" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn13" role="doc-endnote"><p><a href="https://github.com/thalesmg/campinas/tree/d57830252c6ebe9e04699d125247f6cfeee2f1c1">https://github.com/thalesmg/campinas/tree/d57830252c6ebe9e04699d125247f6cfeee2f1c1</a><a href="#fnref13" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn14" role="doc-endnote"><p><a href="https://www.cambridge.org/core/journals/mathematical-structures-in-computer-science/article/abs/representing-control-a-study-of-the-cps-transformation/37193FD94F87443338FC7F519783FF0A">Olivier Danvy and Andre Filinski, “Representing Control: a Study of the CPS Transformation”, MSCS, 1992</a><a href="#fnref14" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn15" role="doc-endnote"><p><a href="https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.43.8753">Olivier Danvy and Andre Filinski, “Abstracting Control,” LISP and Functional Programming, 1990</a><a href="#fnref15" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn16" role="doc-endnote"><p><a href="https://matt.might.net/articles/programming-with-continuations--exceptions-backtracking-search-threads-generators-coroutines/">“Continuations by example: Exceptions, time-traveling search, generators, threads, and coroutines”, by Matt Might</a><a href="#fnref16" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn17" role="doc-endnote"><p><a href="https://docs.racket-lang.org/reference/cont.html">https://docs.racket-lang.org/reference/cont.html</a><a href="#fnref17" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>

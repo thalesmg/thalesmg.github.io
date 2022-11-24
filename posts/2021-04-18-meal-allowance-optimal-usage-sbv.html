@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Optimizing meal allowance card usage using SBV</title>
+        <link rel="stylesheet" href="../css/default.css" />
+        <link rel="stylesheet" href="../css/code.css" />
+        <link rel="stylesheet" href="../css/pygments.css" />
+        <link rel="stylesheet" href="../css/gist.css" />
+    </head>
+    <body class="tj">
+        <header>
+            <div class="logo">
+                <a href="../">thalesmg</a>
+            </div>
+            <nav>
+                <a href="../">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../archive.html">Archive</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <h1>Optimizing meal allowance card usage using SBV</h1>
+            <article>
+  
+  <div>
+    
+<span class="f6">
+  tags:
+  
+  <a href="../tags/haskell.html" class="ba br3">haskell</a>
+  ;
+  
+  <a href="../tags/smt%20solvers.html" class="ba br3">smt solvers</a>
+  ;
+  
+  <a href="../tags/sbv.html" class="ba br3">sbv</a>
+  
+</span>
+
+
+  </div>
+  
+    <section class="header">
+        Posted on 2021-04-18
+        
+    </section>
+    <section>
+        <p>I was faced with the following problem: find a grocery shopping list that optimally consumes all remaining credit in a meal allowance card. The company I work for switched card providers and stopped crediting the old card, and I wanted to fully consume its remaining balance to the last cent.</p>
+<p>So, I had the idea to use the <a href="https://github.com/Z3Prover/z3">Z3 solver</a> to extract a subset of my desired shopping list such that the total amount, shipping included, would approach the remaining card balance as close as possible. I chose Haskell as the language, which has the excellent <a href="https://hackage.haskell.org/package/sbv">SBV</a> package that provides an API for SMT solvers such as Z3.</p>
+<p>For this, I used a few language pragmas:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="cm">{-# LANGUAGE NamedFieldPuns #-}</span>
+<span class="cm">{-# LANGUAGE FlexibleInstances #-}</span>
+<span class="cm">{-# LANGUAGE NumericUnderscores #-}</span>
+</code></pre></div>
+<p>… and a few imports:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="kr">import</span> <span class="nn">Data.Foldable</span> <span class="p">(</span><span class="nf">traverse_</span><span class="p">)</span>
+<span class="kr">import</span> <span class="nn">Data.SBV</span>
+<span class="kr">import</span> <span class="nn">Data.SBV.Control</span>
+<span class="kr">import</span> <span class="nn">Data.Functor.Identity</span> <span class="p">(</span><span class="kt">Identity</span><span class="p">(</span><span class="o">..</span><span class="p">))</span>
+</code></pre></div>
+<p>Following a hint from the <a href="https://hackage.haskell.org/package/sbv-8.14/docs/Documentation-SBV-Examples-Puzzles-Murder.html#t:Person">Murder puzzle example</a> from SBV (which seems like an application of <a href="https://reasonablypolymorphic.com/blog/higher-kinded-data/">higher-kinded data</a>), I parameterized my shopping item over the representation for the value:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="kr">data</span> <span class="kt">Item</span> <span class="n">f</span> <span class="ow">=</span> <span class="kt">MkItem</span> <span class="p">{</span> <span class="n">itemID</span> <span class="ow">::</span> <span class="kt">String</span>
+                     <span class="p">,</span> <span class="n">value</span> <span class="ow">::</span> <span class="n">f</span> <span class="kt">Integer</span>
+                     <span class="p">}</span>
+
+<span class="kr">instance</span> <span class="kt">Show</span> <span class="p">(</span><span class="kt">Item</span> <span class="kt">Identity</span><span class="p">)</span> <span class="kr">where</span>
+  <span class="n">show</span> <span class="kt">MkItem</span><span class="p">{</span><span class="n">itemID</span><span class="p">,</span> <span class="n">value</span> <span class="ow">=</span> <span class="kt">Identity</span> <span class="n">value</span><span class="p">}</span> <span class="ow">=</span>
+    <span class="s">&quot;(&quot;</span> <span class="o">&lt;&gt;</span> <span class="n">itemID</span> <span class="o">&lt;&gt;</span> <span class="s">&quot;, &quot;</span> <span class="o">&lt;&gt;</span> <span class="n">show</span> <span class="n">value</span> <span class="o">&lt;&gt;</span> <span class="s">&quot;)&quot;</span>
+</code></pre></div>
+<p>By parameterizing <code>Item</code> over <code>f</code>, we can use the same structure both in concrete (when extracting solutions) and in symbolic (when searching for solutions) contexts. SBV symbolic values are wrapped in the <code>SBV</code> type, while the concrete ones are simply wrapped inside <code>Identity</code>. To transform a symbolic item into a concrete one, we must query a (satisfiable) model and get the values from it, which is done by <code>getValue</code>:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="nf">getItem</span> <span class="ow">::</span> <span class="kt">Item</span> <span class="kt">SBV</span> <span class="ow">-&gt;</span> <span class="kt">Query</span> <span class="p">(</span><span class="kt">Item</span> <span class="kt">Identity</span><span class="p">)</span>
+<span class="nf">getItem</span> <span class="kt">MkItem</span><span class="p">{</span><span class="n">itemID</span><span class="p">,</span> <span class="n">value</span><span class="p">}</span> <span class="ow">=</span>
+  <span class="kt">MkItem</span> <span class="n">itemID</span> <span class="o">&lt;$&gt;</span> <span class="p">(</span><span class="n">fmap</span> <span class="kt">Identity</span> <span class="o">.</span> <span class="n">getValue</span> <span class="o">$</span> <span class="n">value</span><span class="p">)</span>
+</code></pre></div>
+<p>At first, I approached the problem trying to figure out how to express possible subsets of a given set in SBV. I could not figure out how to do it this way, since the resulting set could have any number of items, and was having trouble trying to sketch the function types using <a href="https://hackage.haskell.org/package/sbv-8.14/docs/Data-SBV.html#t:SSet"><code>SSet</code></a> and <code>Item SBV</code>.</p>
+<p>Then I had a much, much simpler idea. I simply had to create one <code>Bool</code> for each item in the list to represent whether it should be selected. This may seem quite obvious in retrospect, but it took some time for me to formulate the problem in an amenable way to the solver. I hope by sharing it here it may help someone else facing a similar problem.</p>
+<p>Anyway, the final solution is presented below:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="nf">split</span> <span class="ow">::</span> <span class="p">[</span><span class="kt">Item</span> <span class="kt">SBV</span><span class="p">]</span>
+         <span class="c1">-- ^ current shopping list</span>
+      <span class="ow">-&gt;</span> <span class="kt">SInteger</span>
+         <span class="c1">-- ^ shipping cost</span>
+      <span class="ow">-&gt;</span> <span class="p">(</span><span class="kt">SInteger</span><span class="p">,</span> <span class="kt">SInteger</span><span class="p">)</span>
+         <span class="c1">-- ^ (minimum, maximum) values of the sublist, to allow</span>
+         <span class="c1">-- some flexibility in the solution</span>
+      <span class="ow">-&gt;</span> <span class="kt">IO</span> <span class="p">[</span><span class="kt">Item</span> <span class="kt">Identity</span><span class="p">]</span>
+         <span class="c1">-- ^ the final sublist that approximates the card</span>
+         <span class="c1">-- balance, if any</span>
+<span class="nf">split</span> <span class="n">originalList</span> <span class="n">shipping</span> <span class="p">(</span><span class="n">mini</span><span class="p">,</span> <span class="n">maxi</span><span class="p">)</span> <span class="ow">=</span> <span class="n">runSMT</span> <span class="o">$</span> <span class="kr">do</span>
+  <span class="c1">-- we create a bool for each item in the input list</span>
+  <span class="n">bs</span> <span class="ow">&lt;-</span> <span class="n">sBools</span> <span class="o">.</span> <span class="n">map</span> <span class="n">itemID</span> <span class="o">$</span> <span class="n">originalList</span>
+  <span class="c1">-- the symbolic total value of the sublist, yet to be determined</span>
+  <span class="kr">let</span> <span class="n">total</span> <span class="ow">=</span> <span class="n">foldr</span> <span class="p">(</span><span class="nf">\</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span> <span class="n">acc</span> <span class="ow">-&gt;</span> <span class="n">oneIf</span> <span class="n">b</span> <span class="o">*</span> <span class="n">value</span> <span class="n">x</span> <span class="o">+</span> <span class="n">acc</span><span class="p">)</span>
+                    <span class="n">shipping</span> <span class="p">(</span><span class="n">zip</span> <span class="n">bs</span> <span class="n">originalList</span><span class="p">)</span>
+  <span class="c1">-- the total value of the sublist should be within the</span>
+  <span class="c1">-- acceptable bounds</span>
+  <span class="n">constrain</span> <span class="o">$</span> <span class="n">mini</span> <span class="o">.&lt;=</span> <span class="n">total</span> <span class="o">.&amp;&amp;</span> <span class="n">total</span> <span class="o">.&lt;=</span> <span class="n">maxi</span>
+  <span class="n">query</span> <span class="o">$</span> <span class="kr">do</span>
+    <span class="c1">-- is the model satisfiable?</span>
+    <span class="n">cs</span> <span class="ow">&lt;-</span> <span class="n">checkSat</span>
+    <span class="kr">case</span> <span class="n">cs</span> <span class="kr">of</span>
+      <span class="c1">-- we can only probe the model if it is satisfiable</span>
+      <span class="kt">Sat</span> <span class="ow">-&gt;</span> <span class="kr">do</span>
+        <span class="c1">-- we make the booleans concrete</span>
+        <span class="n">bs'</span> <span class="ow">&lt;-</span> <span class="n">mapM</span> <span class="n">getValue</span> <span class="n">bs</span>
+        <span class="c1">-- ... and also the input values, even if they are</span>
+        <span class="c1">-- literals to begin with</span>
+        <span class="n">xs</span> <span class="ow">&lt;-</span> <span class="n">mapM</span> <span class="n">getItem</span> <span class="n">originalList</span>
+        <span class="n">s</span> <span class="ow">&lt;-</span> <span class="n">getValue</span> <span class="n">shipping</span>
+        <span class="kr">let</span> <span class="n">xs'</span> <span class="ow">=</span> <span class="n">map</span> <span class="n">snd</span>
+                <span class="o">.</span> <span class="n">filter</span> <span class="n">fst</span>
+                <span class="o">.</span> <span class="n">zip</span> <span class="n">bs'</span>
+                <span class="o">$</span> <span class="n">xs</span>
+            <span class="n">total</span> <span class="ow">=</span> <span class="n">sum</span> <span class="o">.</span> <span class="n">map</span> <span class="p">(</span><span class="n">runIdentity</span> <span class="o">.</span> <span class="n">value</span><span class="p">)</span> <span class="o">$</span> <span class="n">xs'</span>
+        <span class="n">io</span> <span class="o">$</span> <span class="n">putStr</span> <span class="s">&quot;Total (only items) = &quot;</span>
+        <span class="n">io</span> <span class="o">.</span> <span class="n">print</span> <span class="o">$</span> <span class="n">total</span>
+        <span class="n">io</span> <span class="o">$</span> <span class="n">putStr</span> <span class="s">&quot;Total (items + shipping) = &quot;</span>
+        <span class="n">io</span> <span class="o">.</span> <span class="n">print</span> <span class="o">$</span> <span class="n">total</span> <span class="o">+</span> <span class="n">s</span>
+        <span class="n">pure</span> <span class="n">xs'</span>
+      <span class="c1">-- if the model is provably unsatisfiable or if the</span>
+      <span class="c1">-- result is unknown (when the solver cannot prove</span>
+      <span class="c1">-- nor disprove the assertions)</span>
+      <span class="c1">-- we simply print a message and return an empty list</span>
+      <span class="kr">_</span> <span class="ow">-&gt;</span> <span class="kr">do</span>
+        <span class="n">io</span> <span class="o">$</span> <span class="n">putStrLn</span> <span class="s">&quot;Impossible!&quot;</span>
+        <span class="n">pure</span> <span class="kt">[]</span>
+</code></pre></div>
+<p>I already had a shopping list I wanted to buy for the month, and then I tried to apply the solver and see if I could optimize the allowance usage. To my surprise, even after altering the list more than once due to items becoming unavailable or correcting rounding errors in the values, the solver could find solutions that <em>exactly</em> consumed the entire balance!</p>
+<p>To get the solution:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="o">&gt;</span> <span class="n">result</span> <span class="ow">&lt;-</span> <span class="n">split</span> <span class="n">exampleList</span> <span class="mi">14_90</span> <span class="p">(</span><span class="mi">200_00</span><span class="p">,</span> <span class="mi">210_00</span><span class="p">)</span>
+<span class="kt">Total</span> <span class="p">(</span><span class="n">only</span> <span class="n">items</span><span class="p">)</span> <span class="ow">=</span> <span class="mi">18756</span>
+<span class="kt">Total</span> <span class="p">(</span><span class="n">items</span> <span class="o">+</span> <span class="n">shipping</span><span class="p">)</span> <span class="ow">=</span> <span class="mi">20246</span>
+<span class="o">&gt;</span> <span class="n">traverse_</span> <span class="n">print</span> <span class="n">result</span>
+<span class="p">(</span><span class="kt">Bread</span><span class="p">,</span> <span class="mi">949</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Butter</span><span class="p">,</span> <span class="mi">679</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Milk</span><span class="p">,</span> <span class="mi">798</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Coffee</span><span class="p">,</span> <span class="mi">2198</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Decaffeinated</span> <span class="kt">Coffee</span><span class="p">,</span> <span class="mi">2198</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Hamburger</span><span class="p">,</span> <span class="mi">2179</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Sausage</span><span class="p">,</span> <span class="mi">1055</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Cheese</span><span class="p">,</span> <span class="mi">2408</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Bleach</span><span class="p">,</span> <span class="mi">3045</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Sponge</span><span class="p">,</span> <span class="mi">499</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Toothbrush</span><span class="p">,</span> <span class="mi">1049</span><span class="p">)</span>
+<span class="p">(</span><span class="kt">Flour</span><span class="p">,</span> <span class="mi">1699</span><span class="p">)</span>
+</code></pre></div>
+<p>Here’s a sample input list with some fake items to try out. We use <code>Item SBV</code> with integer literals so the solver can reason about those values. Also, values are represented in cents:</p>
+<details>
+<summary>
+Sample shopping list:
+</summary>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode haskell"><span class="nf">exampleList</span> <span class="ow">::</span> <span class="p">[</span><span class="kt">Item</span> <span class="kt">SBV</span><span class="p">]</span>
+<span class="nf">exampleList</span> <span class="ow">=</span> <span class="p">[</span> <span class="kt">MkItem</span> <span class="s">&quot;Rice&quot;</span> <span class="mi">13_99</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Beans&quot;</span> <span class="mi">7_99</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Oil&quot;</span> <span class="mi">68_97</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Bread&quot;</span> <span class="mi">9_49</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Butter&quot;</span> <span class="mi">6_79</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Milk&quot;</span> <span class="mi">7_98</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Coffee&quot;</span> <span class="mi">21_98</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Decaffeinated Coffee&quot;</span> <span class="mi">21_98</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Hamburger&quot;</span> <span class="mi">21_79</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Hot dog&quot;</span> <span class="mi">21_79</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Meat&quot;</span> <span class="mi">28_59</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Chicken&quot;</span> <span class="mi">15_97</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Sausage&quot;</span> <span class="mi">10_55</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Cheese&quot;</span> <span class="mi">24_08</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Bleach&quot;</span> <span class="mi">30_45</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Sponge&quot;</span> <span class="mi">4_99</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Soap&quot;</span> <span class="mi">28_19</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Soda&quot;</span> <span class="mi">35_80</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Toothbrush&quot;</span> <span class="mi">10_49</span>
+              <span class="p">,</span> <span class="kt">MkItem</span> <span class="s">&quot;Flour&quot;</span> <span class="mi">16_99</span>
+              <span class="p">]</span>
+</code></pre></div>
+</details>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Simple Two-Phase Commit Exercise in Alloy 6</title>
+        <link rel="stylesheet" href="../css/default.css" />
+        <link rel="stylesheet" href="../css/code.css" />
+        <link rel="stylesheet" href="../css/pygments.css" />
+        <link rel="stylesheet" href="../css/gist.css" />
+    </head>
+    <body class="tj">
+        <header>
+            <div class="logo">
+                <a href="../">thalesmg</a>
+            </div>
+            <nav>
+                <a href="../">Home</a>
+                <a href="../about.html">About</a>
+                <a href="../archive.html">Archive</a>
+            </nav>
+        </header>
+
+        <main role="main">
+            <h1>Simple Two-Phase Commit Exercise in Alloy 6</h1>
+            <article>
+  
+  <div>
+    
+<span class="f6">
+  tags:
+  
+  <a href="../tags/alloy.html" class="ba br3">alloy</a>
+  ;
+  
+  <a href="../tags/formal%20methods.html" class="ba br3">formal methods</a>
+  ;
+  
+  <a href="../tags/distributed%20systems.html" class="ba br3">distributed systems</a>
+  
+</span>
+
+
+  </div>
+  
+    <section class="header">
+        Posted on 2022-09-21
+        
+    </section>
+    <section>
+        <p>I wanted to learn how to use <a href="https://alloytools.org/">Alloy</a> 6’s new <a href="https://www.hillelwayne.com/post/alloy6/">temporal operators</a> and have a sense of how they worked for modelling protocol stuff. I found <a href="https://haslab.github.io/formal-software-design/overview/index.html">Haslab’s awesome tutorial</a> that gave me the basics to try to do a simple exercise: model <a href="https://en.wikipedia.org/wiki/Two-phase_commit_protocol">two-phase commit</a>, then visualize and check some things about it.</p>
+<p>I still have a very long way ahead of learning formal methods. The model is certainly far from optimal, and I probably made mistakes along the way. So, as always, take the following with a grain of salt.</p>
+<p>The two-phase commit (<em>2PC</em>) is a protocol that attempts to solve the problem of a group of nodes or processes trying to reach consensus if a certain transaction should be committed or aborted. In 2PC, one of the participating nodes is designated as the <em>transaction coordinator</em> (<em>TC</em>) and it is responsible for doing all the communications with the other nodes.</p>
+<p>The first phase of the protocol can be represented as the TC sending to the participating nodes the transaction operations that need to be done, and it expects its peers to answer whether they are willing to commit those operations. If any node responds with a “no”, then the TC sends a message to all nodes aborting the transaction. Otherwise, it tells the peers to commit. It is a protocol that requires some assumptions on the kinds of failures that can happen so that properties like termination/liveness can be asserted.</p>
+<p>In this particular model, I did not take crashes with reboot into account. Not only it’s simpler, but I also don’t know how to model that. Maybe a step that resets the “memory” of the node, and then add steps to write and read the write-ahead log? Also, this model considers only one transaction. In the future, I could try to take concurrent transactions into account somehow.</p>
+<p>I modeled the problem as each node having one <code>Value</code>, which I use to represent the local state of the <code>Node</code> regarding the history of transactions. Each node may have a proposed <code>Value</code>, whose presence represents the final state in case the transaction is committed. It also may have stated its <code>Vote</code> about it should commit or abort the transaction (<code>Yep</code> and <code>Nope</code>, respectively).</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="kn">module</span> <span class="n">twophasecommit_ideal</span>
+
+<span class="kd">sig</span> <span class="n">Value</span> <span class="o">{}</span>
+
+<span class="kd">enum</span> <span class="n">Vote</span> <span class="o">{</span><span class="n">Yep</span><span class="p">,</span> <span class="n">Nope</span><span class="o">}</span>
+
+<span class="kd">sig</span> <span class="n">Node</span> <span class="o">{</span>
+   <span class="n">var</span> <span class="n">val</span><span class="p">:</span> <span class="k">one</span> <span class="n">Value</span><span class="p">,</span>
+   <span class="n">var</span> <span class="n">proposed</span><span class="p">:</span> <span class="k">lone</span> <span class="n">Value</span><span class="p">,</span>
+   <span class="n">var</span> <span class="n">voted</span><span class="p">:</span> <span class="k">lone</span> <span class="n">Vote</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>The relations annotated with <code>var</code> are those that’ll be allowed to vary with each step of the analysis.</p>
+<p>One of the nodes is the <code>TransactionCoordinator</code>, which keeps track of the proposals and responses it sent (<code>proposals_sent</code> and <code>responses_recv</code>, respectively).</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">one</span> <span class="kd">sig</span> <span class="n">TransactionCoordinator</span> <span class="n">in</span> <span class="n">Node</span> <span class="o">{</span>
+   <span class="n">var</span> <span class="n">proposals_sent</span><span class="p">:</span> <span class="k">set</span> <span class="n">Node</span><span class="p">,</span>
+   <span class="n">var</span> <span class="n">responses_recv</span><span class="p">:</span> <span class="n">Vote</span> <span class="o">-&gt;</span> <span class="n">Node</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>Unless specified, the system so far is allowed to have any starting relations and cardinality (constrained only to the cardinality and set inclusion annotations). So, we must specify what constitutes a valid initial state, time-wise. In the beginning, there are no values proposed, no requests nor responses exchanged, and no votes.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">fact</span> <span class="n">init</span> <span class="o">{</span>
+   <span class="k">no</span> <span class="n">proposed</span>
+   <span class="k">no</span> <span class="n">proposals_sent</span>
+   <span class="k">no</span> <span class="n">voted</span>
+   <span class="k">no</span> <span class="n">responses_recv</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>Then, we may specify the possible “steps” that change the whole state of system. The simplest one is that in which nothing changes: <code>stutter</code>. It can represent either that the system is in a final state or maybe some participants crashed and the system is unable to make progress.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">stutter</span> <span class="o">{</span>
+   <span class="n">val'</span> <span class="o">=</span> <span class="n">val</span>
+   <span class="n">proposed'</span> <span class="o">=</span> <span class="n">proposed</span>
+   <span class="n">proposals_sent'</span> <span class="o">=</span> <span class="n">proposals_sent</span>
+   <span class="n">voted'</span> <span class="o">=</span> <span class="n">voted</span>
+   <span class="n">responses_recv'</span> <span class="o">=</span> <span class="n">responses_recv</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>The primes in the relations’ names indicate that it’s the relation value in the <em>next</em> step. The first real step of the protocol consists of the TC sending its proposal to the peers. Here, the TC sets its own proposed value to the value it is proposing to the other node, meaning they should agree on the same final outcome. It then registers that it sent a proposal to the given node, which I think could represent it writing the request to a write-ahead log (<em>WAL</em>) before sending it.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">send_proposal</span><span class="o">[</span><span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Value</span><span class="p">,</span> <span class="n">n</span> <span class="p">:</span> <span class="n">Node</span><span class="o">]</span> <span class="o">{</span>
+   <span class="c1">// precondition: this node did not receive a proposal yet</span>
+   <span class="n">n</span> <span class="n">not</span> <span class="ow">in</span> <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent</span>
+
+   <span class="c1">// effect</span>
+   <span class="n">tc</span><span class="o">.</span><span class="n">val</span> <span class="o">=</span> <span class="n">v</span>
+   <span class="n">tc</span><span class="o">.</span><span class="n">proposed'</span> <span class="o">=</span> <span class="n">v</span>
+   <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent'</span> <span class="o">=</span> <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent</span> <span class="o">+</span> <span class="n">n</span>
+   <span class="n">proposed'</span> <span class="o">=</span> <span class="n">proposed</span> <span class="o">+</span> <span class="n">n</span><span class="o">-&gt;</span><span class="n">v</span>
+
+   <span class="c1">// frame conditions</span>
+   <span class="n">val'</span> <span class="o">=</span> <span class="n">val</span>
+   <span class="n">voted'</span> <span class="o">=</span> <span class="n">voted</span>
+   <span class="n">responses_recv'</span> <span class="o">=</span> <span class="n">responses_recv</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>We need to specify some precondition for such step to take place, then the desired effect on the state. As with the initial state, anything we don’t specify is allowed to change freely. Since it doesn’t make sense for the other nodes to suddenly vote before even receiving a proposal, for example, we need to specify the <em>frame conditions</em> to explicitly say that “everything else is unchanged”.</p>
+<p>The other steps are quite similar, with their own preconditions and effects, as described above. I’ve represented the decision of commit or abort taking effect in the nodes as each one clearing the proposed value from their memory, and then changing their own value in case of a commit.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">send_response</span><span class="o">[</span><span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span><span class="p">,</span> <span class="n">vote</span><span class="p">:</span> <span class="n">Vote</span><span class="p">,</span> <span class="n">n</span> <span class="p">:</span> <span class="n">Node</span><span class="o">]</span> <span class="o">{</span>
+   <span class="c1">// preconditions</span>
+   <span class="k">no</span> <span class="n">n</span><span class="o">.</span><span class="n">voted</span>
+   <span class="k">some</span> <span class="n">n</span><span class="o">.</span><span class="n">proposed</span>
+
+   <span class="c1">// effect</span>
+   <span class="n">n</span><span class="o">.</span><span class="n">voted'</span> <span class="o">=</span> <span class="n">vote</span>
+   <span class="n">tc</span><span class="o">.</span><span class="n">responses_recv'</span> <span class="o">=</span> <span class="n">tc</span><span class="o">.</span><span class="n">responses_recv</span> <span class="o">+</span> <span class="n">vote</span><span class="o">-&gt;</span><span class="n">n</span>
+
+   <span class="c1">// frame conditions</span>
+   <span class="n">val'</span> <span class="o">=</span> <span class="n">val</span>
+   <span class="n">proposed'</span> <span class="o">=</span> <span class="n">proposed</span>
+   <span class="n">proposals_sent'</span> <span class="o">=</span> <span class="n">proposals_sent</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">-</span> <span class="n">n</span> <span class="o">|</span> <span class="n">m</span><span class="o">.</span><span class="n">voted'</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">voted</span>
+<span class="o">}</span>
+
+<span class="k">pred</span> <span class="n">send_decision_abort</span><span class="o">[</span><span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="n">Node</span><span class="o">]</span> <span class="o">{</span>
+   <span class="c1">// preconditions</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="k">some</span> <span class="n">tc</span><span class="o">.</span><span class="n">responses_recv</span><span class="o">.</span><span class="n">m</span>
+   <span class="k">some</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="n">tc</span><span class="o">.</span><span class="n">responses_recv</span><span class="o">.</span><span class="n">m</span> <span class="o">=</span> <span class="n">Nope</span>
+
+   <span class="c1">// effect</span>
+   <span class="n">val'</span> <span class="o">=</span> <span class="n">val</span>
+   <span class="n">proposed'</span> <span class="o">=</span> <span class="n">proposed</span> <span class="o">-</span> <span class="n">n</span><span class="o">-&gt;</span><span class="n">Value</span>
+
+   <span class="c1">// frame conditions</span>
+   <span class="n">voted'</span> <span class="o">=</span> <span class="n">voted</span>
+   <span class="n">proposals_sent'</span> <span class="o">=</span> <span class="n">proposals_sent</span>
+   <span class="n">responses_recv'</span> <span class="o">=</span> <span class="n">responses_recv</span>
+<span class="o">}</span>
+
+<span class="k">pred</span> <span class="n">send_decision_commit</span><span class="o">[</span><span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="n">Node</span><span class="o">]</span> <span class="o">{</span>
+   <span class="c1">// preconditions</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="n">tc</span><span class="o">.</span><span class="n">responses_recv</span><span class="o">.</span><span class="n">m</span> <span class="o">=</span> <span class="n">Yep</span>
+   <span class="k">some</span> <span class="n">n</span><span class="o">.</span><span class="n">proposed</span>
+
+   <span class="c1">// effect</span>
+   <span class="n">n</span><span class="o">.</span><span class="n">val'</span> <span class="o">=</span> <span class="n">n</span><span class="o">.</span><span class="n">proposed</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">-</span> <span class="n">n</span> <span class="o">|</span> <span class="o">{</span>
+      <span class="n">m</span><span class="o">.</span><span class="n">val'</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">val</span>
+   <span class="o">}</span>
+   <span class="n">proposed'</span> <span class="o">=</span> <span class="n">proposed</span> <span class="o">-</span> <span class="n">n</span><span class="o">-&gt;</span><span class="n">Value</span>
+
+   <span class="c1">// frame conditions</span>
+   <span class="n">voted'</span> <span class="o">=</span> <span class="n">voted</span>
+   <span class="n">proposals_sent'</span> <span class="o">=</span> <span class="n">proposals_sent</span>
+   <span class="n">responses_recv'</span> <span class="o">=</span> <span class="n">responses_recv</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>We then say that those are possible steps in our system:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">fact</span> <span class="n">step</span> <span class="o">{</span>
+   <span class="n">always</span> <span class="o">(</span>
+     <span class="n">stutter</span> <span class="ow">or</span>
+     <span class="o">(</span><span class="k">some</span> <span class="n">v</span><span class="p">:</span> <span class="n">Value</span><span class="p">,</span> <span class="n">n</span> <span class="p">:</span> <span class="n">Node</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+        <span class="n">send_proposal</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span> <span class="ow">or</span>
+     <span class="o">(</span><span class="k">some</span> <span class="n">vote</span><span class="p">:</span> <span class="n">Vote</span><span class="p">,</span> <span class="n">n</span> <span class="p">:</span> <span class="n">Node</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+        <span class="n">send_response</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">vote</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span> <span class="ow">or</span>
+     <span class="o">(</span><span class="k">some</span> <span class="n">n</span><span class="p">:</span> <span class="n">Node</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+        <span class="n">send_decision_abort</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span> <span class="ow">or</span>
+     <span class="o">(</span><span class="k">some</span> <span class="n">n</span><span class="p">:</span> <span class="n">Node</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+        <span class="n">send_decision_commit</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span>
+   <span class="o">)</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>With <code>always</code>, we specify that at all state transitions, one of these possibilities must happen. With this, we may already explore the model and ask Alloy to generate some examples for us!</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">run</span> <span class="n">example0</span> <span class="o">{</span>
+  <span class="o">#</span><span class="n">Node</span> <span class="o">&gt;</span> <span class="mi">1</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>When I ran this, I got a trace with a single distinct state: a single node and the TC with the same initial state, and then stays forever like that. We can then manually ask the simulator to give us different possibilities and explore if our model makes sense. While making the above predicates, I made several mistakes that the visualizer showed me while exploring. I’ll defer the description of each button of the visualizer to <a href="https://haslab.github.io/formal-software-design/overview/index.html">Haslab’s tutorial</a>. But the quick tip is to change the initial (non-<code>var</code> relations) with “New Config”, then proceed to the next state until you want a new next state, at which point you click “New Fork” to produce a new one. Rinse and repeat.</p>
+<p>We may try to assert some temporal properties of our system. We want it to eventually reach some conclusion about the transaction: either abort or commit it. That final state is represented here as all nodes having received some proposal, sent their responses back, and then having cleared their pending proposals.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">ReachesConclusion</span> <span class="o">{</span>
+   <span class="n">Node</span> <span class="o">=</span> <span class="n">TransactionCoordinator</span><span class="o">.</span><span class="n">proposals_sent</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="k">some</span> <span class="n">TransactionCoordinator</span><span class="o">.</span><span class="n">responses_recv</span><span class="o">.</span><span class="n">m</span>
+   <span class="k">no</span> <span class="n">proposed</span>
+<span class="o">}</span>
+<span class="k">assert</span> <span class="n">ReachesConclusion0</span> <span class="o">{</span>
+   <span class="n">eventually</span> <span class="n">ReachesConclusion</span>
+<span class="o">}</span>
+<span class="k">check</span> <span class="n">ReachesConclusion0</span> <span class="k">for</span> <span class="mi">3</span> <span class="k">but</span> <span class="mi">1</span><span class="o">..</span><span class="mi">15</span> <span class="n">steps</span>
+</code></pre></div>
+<p>As one could possibly expect, when we ask the model checks to verify <code>ReachesConclusion0</code>, it immediately finds a counterexample. The system never makes progress, which could be that the TC crashes and never comes back.</p>
+<p><img src="../images/alloy-2pc-counter1.png" width="800" alt="image" /></p>
+<p>So, in order for our protocol to eventually reach some conclusion, we need to impose some conditions on its behaviors. In particular, we may assume that, if a proposal is sent to a node, then eventually it’ll be received by the node. I think that could be represented in a real implementation as a retry mechanism on the TC side. Analogously, we may assume that eventually a response is eventually sent back, and that a decision message is finally sent. Without any those assumption, the protocol halts at that step or phase. At least that was what I saw while playing with it. This is what I believe is referred to as a <a href="https://www.learntla.com/reference/glossary.html?highlight=fairness">fairness condition</a>.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">fairness</span> <span class="o">{</span>
+   <span class="k">all</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="o">{</span>
+      <span class="o">(</span><span class="n">eventually</span> <span class="n">historically</span> <span class="o">(</span><span class="n">n</span> <span class="n">not</span> <span class="ow">in</span> <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent</span><span class="o">))</span>
+        <span class="o">=&gt;</span> <span class="o">(</span><span class="n">eventually</span> <span class="k">some</span> <span class="n">v</span><span class="p">:</span> <span class="n">Value</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+            <span class="n">send_proposal</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span>
+      <span class="o">(</span><span class="n">eventually</span> <span class="n">always</span> <span class="o">(</span><span class="n">n</span> <span class="ow">in</span> <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent</span><span class="o">))</span>
+        <span class="o">=&gt;</span> <span class="o">(</span><span class="n">eventually</span> <span class="k">some</span> <span class="n">v</span><span class="p">:</span> <span class="n">Vote</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+            <span class="n">send_response</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span>
+      <span class="o">(</span><span class="n">eventually</span> <span class="n">always</span> <span class="o">(</span><span class="n">n</span> <span class="ow">in</span> <span class="n">Vote</span><span class="o">.(</span><span class="n">tc</span><span class="o">.</span><span class="n">responses_recv</span><span class="o">)))</span>
+        <span class="o">=&gt;</span> <span class="o">(</span><span class="n">eventually</span> <span class="k">some</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+            <span class="o">(</span><span class="n">send_decision_abort</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">n</span><span class="o">]</span> <span class="ow">or</span> <span class="n">send_decision_commit</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">n</span><span class="o">]))</span>
+   <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>With that, we may rewrite the <code>ReachesCondition</code> predicate and assertion as:</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">ReachesConclusion</span> <span class="o">{</span>
+   <span class="n">Node</span> <span class="o">=</span> <span class="n">TransactionCoordinator</span><span class="o">.</span><span class="n">proposals_sent</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="k">some</span> <span class="n">TransactionCoordinator</span><span class="o">.</span><span class="n">responses_recv</span><span class="o">.</span><span class="n">m</span>
+   <span class="k">no</span> <span class="n">proposed</span>
+<span class="o">}</span>
+
+<span class="k">assert</span> <span class="n">ReachesConclusion</span> <span class="o">{</span>
+   <span class="n">fairness</span> <span class="o">=&gt;</span> <span class="n">eventually</span> <span class="n">ReachesConclusion</span>
+<span class="o">}</span>
+
+<span class="k">check</span> <span class="n">ReachesConclusion</span> <span class="k">for</span> <span class="mi">3</span> <span class="k">but</span> <span class="mi">1</span><span class="o">..</span><span class="mi">15</span> <span class="n">steps</span>
+</code></pre></div>
+<p><img src="../images/alloy-2pc-conclusion1.png" width="800" alt="image" /></p>
+<p>With this, no counterexample is found for <code>ReachesConclusion</code>, so our assertion <em>may</em> be valid! 🍾🎉</p>
+<p>We may also assert another silly condition and run an example that reaches some conclusion to visualize the steps the simulation takes. An example is found within 7 steps.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">Commited</span> <span class="o">{</span>
+   <span class="n">ReachesConclusion</span>
+   <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="n">m</span><span class="o">.</span><span class="n">voted</span> <span class="o">=</span> <span class="n">Yep</span>
+<span class="o">}</span>
+
+<span class="k">assert</span> <span class="n">CommitMeansAgreement</span> <span class="o">{</span>
+   <span class="n">Commited</span> <span class="o">=&gt;</span> <span class="k">all</span> <span class="k">disj</span> <span class="n">n1</span><span class="p">,</span> <span class="n">n2</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="n">n1</span><span class="o">.</span><span class="n">val</span> <span class="o">=</span> <span class="n">n2</span><span class="o">.</span><span class="n">val</span>
+<span class="o">}</span>
+
+<span class="k">check</span> <span class="n">CommitMeansAgreement</span> <span class="k">for</span> <span class="mi">3</span> <span class="k">but</span> <span class="mi">1</span><span class="o">..</span><span class="mi">15</span> <span class="n">steps</span>
+
+<span class="k">run</span> <span class="n">example</span> <span class="o">{</span>
+   <span class="o">#</span><span class="n">Node</span> <span class="o">&gt;</span> <span class="mi">1</span>
+   <span class="n">eventually</span> <span class="n">ReachesConclusion</span>
+<span class="o">}</span>
+
+<span class="k">run</span> <span class="n">commit_example</span> <span class="o">{</span>
+   <span class="o">#</span><span class="n">Node</span> <span class="o">&gt;</span> <span class="mi">1</span>
+   <span class="n">eventually</span> <span class="o">{</span>
+      <span class="n">ReachesConclusion</span>
+      <span class="k">all</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="n">m</span><span class="o">.</span><span class="n">voted</span> <span class="o">=</span> <span class="n">Yep</span>
+   <span class="o">}</span>
+<span class="o">}</span>
+
+<span class="k">run</span> <span class="n">abort_example</span> <span class="o">{</span>
+   <span class="o">#</span><span class="n">Node</span> <span class="o">&gt;</span> <span class="mi">1</span>
+   <span class="n">eventually</span> <span class="o">{</span>
+      <span class="n">ReachesConclusion</span>
+      <span class="k">some</span> <span class="n">m</span> <span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="n">m</span><span class="o">.</span><span class="n">voted</span> <span class="o">=</span> <span class="n">Nope</span>
+   <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div>
+<p><img src="../images/alloy-2pc-example1.png" width="800" alt="image" /></p>
+<p>And that’s it! I couldn’t think of other properties and things to check at the moment. The only other thing would perhaps be to consider more simultaneous transactions or writing to disk.</p>
+<p>While trying to write the fairness condition, though, I found some strange behaviors that I’m still trying to wrap my head around. When I initially wrote the first condition (“if a proposal has not yet been sent to a node, one will eventually be sent”), I wrote it in the same form as the one in Haslab’s tutorial. That is, in the form <code>eventually always historically ... =&gt; always eventually ...</code>. The second and third were similar, regarding the <code>=&gt; always eventually</code> part. Then, playing with the examples and the conclusion assertion, I noticed that I actually didn’t need the third fairness condition, which seemed very wrong. For example, using the following fairness condition is enough for the same <code>ReachesConclusion</code> assertion above to be checked with no counterexamples.</p>
+<div class="codeBlock sourceCode"><pre class="sourceCode"><code class="sourceCode alloy"><span class="k">pred</span> <span class="n">strange_fairness</span> <span class="o">{</span>
+   <span class="k">all</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="n">Node</span> <span class="o">|</span> <span class="o">{</span>
+      <span class="o">(</span><span class="n">eventually</span> <span class="n">historically</span> <span class="o">(</span><span class="n">n</span> <span class="n">not</span> <span class="ow">in</span> <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent</span><span class="o">))</span>
+        <span class="o">=&gt;</span> <span class="o">(</span><span class="n">eventually</span> <span class="k">some</span> <span class="n">v</span><span class="p">:</span> <span class="n">Value</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+            <span class="n">send_proposal</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span>
+      <span class="o">(</span><span class="n">eventually</span> <span class="n">always</span> <span class="o">(</span><span class="n">n</span> <span class="ow">in</span> <span class="n">tc</span><span class="o">.</span><span class="n">proposals_sent</span><span class="o">))</span>
+        <span class="o">=&gt;</span> <span class="o">(</span><span class="n">eventually</span> <span class="n">always</span> <span class="k">some</span> <span class="n">v</span><span class="p">:</span> <span class="n">Vote</span><span class="p">,</span> <span class="n">tc</span><span class="p">:</span> <span class="n">TransactionCoordinator</span> <span class="o">|</span>
+            <span class="n">send_response</span><span class="o">[</span><span class="n">tc</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">n</span><span class="o">])</span>
+   <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div>
+<p>Not that the only difference is that there’s no third condition (about sending the final decision), and I’ve added an <code>always</code> to the consequent of the second condition (<code>eventually always some</code> instead of <code>eventually some</code>). I couldn’t yet see why this is enough for the conclusion to be reached… Also why <code>always</code> is not needed (or why it would be needed) in the antecedent of the first condition.</p>
+<p>The full file for the model and the theme I used in the visualizer can be found in this gist:</p>
+<p><a href="https://gist.github.com/thalesmg/3db6766585e2092fe05920d3c6f861cc">https://gist.github.com/thalesmg/3db6766585e2092fe05920d3c6f861cc</a></p>
+    </section>
+</article>
+
+        </main>
+
+        <footer>
+            Site proudly generated by
+            <a href="http://jaspervdj.be/hakyll">Hakyll</a>
+        </footer>
+    </body>
+</html>
