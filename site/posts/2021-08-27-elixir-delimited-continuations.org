@@ -930,7 +930,7 @@ Which reduces to ~25~, as before.
   :CUSTOM_ID: sec:footnotes
   :END:
 
-[fn:15] https://github.com/thalesmg/campinas/tree/2d41f2697395c2fc542500ad32c62f0f307c7220
+[fn:15] https://github.com/thalesmg/campinas/tree/d57830252c6ebe9e04699d125247f6cfeee2f1c1
 
 [fn:14] https://doi.org/10.1016/j.entcs.2015.12.003
 
